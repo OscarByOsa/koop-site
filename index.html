@@ -3,124 +3,257 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Кооператив — Торговая фракция</title>
+<title>Кооператив — Редактор торговой фракции</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<script>
+/* Загрузка кириллического шрифта в jsPDF */
+async function loadCyrillicFont(doc) {
+  const urls = [
+    "https://cdn.jsdelivr.net/gh/googlefonts/roboto@main/src/hinted/Roboto-Regular.ttf",
+    "https://raw.githubusercontent.com/googlefonts/roboto/main/src/hinted/Roboto-Regular.ttf"
+  ];
+  for (const url of urls) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const buf = await res.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      let binary = "";
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      doc.addFileToVFS("Roboto-Regular.ttf", btoa(binary));
+      doc.addFont("Roboto-Regular.ttf", "Roboto", "normal");
+      return true;
+    } catch (e) { console.warn("Шрифт не загружен с", url, e); }
+  }
+  return false;
+}
+
+/* Кэш иконок: id -> dataURL (или null) */
+const ICON_CACHE = {};
+
+/* Загрузка одной иконки как dataURL */
+async function loadIconDataUrl(id) {
+  if (id in ICON_CACHE) return ICON_CACHE[id];
+  const url = `assets/ittems/textures/item/${id}.png`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) { ICON_CACHE[id] = null; return null; }
+    const blob = await res.blob();
+    const dataUrl = await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = reject;
+      r.readAsDataURL(blob);
+    });
+    ICON_CACHE[id] = dataUrl;
+    return dataUrl;
+  } catch (e) {
+    ICON_CACHE[id] = null;
+    return null;
+  }
+}
+
+/* Предзагрузка набора иконок */
+async function preloadIcons(ids) {
+  await Promise.all(ids.map(id => loadIconDataUrl(id)));
+}
+</script>
+
 <style>
   :root {
-    --bg: #121212; --panel: #1c1c1c; --panel-2: #242424;
-    --border: #3a3a3a; --text: #e8e8e8; --muted: #9a9a9a;
-    --accent: #d4a017; --accent-2: #f0c040;
-    --good: #4caf50; --danger: #c0392b;
+    --bg:#121212; --panel:#1c1c1c; --panel-2:#242424; --border:#3a3a3a;
+    --text:#e8e8e8; --muted:#9a9a9a; --accent:#d4a017; --accent-2:#f0c040;
+    --good:#4caf50; --danger:#c0392b; --info:#2196f3;
   }
-  * { box-sizing: border-box; }
-  body { margin: 0; font-family: 'Segoe UI', Roboto, Arial, sans-serif;
-         background: var(--bg); color: var(--text); }
-  header { background: linear-gradient(135deg, #1a1a1a, #2a2a2a);
-           border-bottom: 2px solid var(--accent); padding: 20px 30px;
-           display: flex; align-items: center; justify-content: space-between;
-           gap: 20px; flex-wrap: wrap; }
-  header h1 { margin: 0; font-size: 1.6rem; letter-spacing: 1px; }
-  header h1 span { color: var(--accent); }
-  header .sub { color: var(--muted); font-size: .9rem; margin-top: 4px; }
-  .header-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
-  .edit-btn { background: var(--panel-2); border: 1px solid var(--border);
-              color: var(--text); padding: 10px 18px; border-radius: 6px;
-              cursor: pointer; font-size: .9rem; transition: .15s; }
-  .edit-btn:hover { border-color: var(--accent); }
-  .edit-btn.active { background: var(--danger); border-color: var(--danger); color: #fff; }
-  .save-btn { background: var(--good); border: 1px solid var(--good);
-              color: #fff; padding: 10px 18px; border-radius: 6px;
-              cursor: pointer; font-size: .9rem; font-weight: 600; transition: .15s; }
-  .save-btn:hover { background: #5cbf60; }
-  .save-btn:disabled { opacity: .5; cursor: not-allowed; }
-  .container { max-width: 1500px; margin: 0 auto; padding: 20px 30px 60px; }
-  .toolbar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
-  .toolbar input, .toolbar select { background: var(--panel-2);
-    border: 1px solid var(--border); color: var(--text); padding: 10px 14px;
-    border-radius: 6px; font-size: .95rem; outline: none; }
-  .toolbar input { flex: 1; min-width: 220px; }
-  .toolbar input:focus, .toolbar select:focus { border-color: var(--accent); }
-  .tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
-  .tab { background: var(--panel); border: 1px solid var(--border);
-         color: var(--muted); padding: 10px 18px; border-radius: 6px;
-         cursor: pointer; font-size: .9rem; transition: .15s; }
-  .tab:hover { border-color: var(--accent); color: var(--text); }
-  .tab.active { background: var(--accent); color: #111;
-                border-color: var(--accent); font-weight: 600; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
-  .card { background: var(--panel); border: 1px solid var(--border);
-          border-radius: 8px; padding: 12px; display: flex;
-          flex-direction: column; align-items: center; text-align: center;
-          transition: .15s; }
-  .card:hover { border-color: var(--accent); transform: translateY(-2px); }
-  .card img { width: 64px; height: 64px; image-rendering: pixelated; margin-bottom: 8px; }
-  .card .name { font-size: .88rem; margin-bottom: 4px; min-height: 2.4em; }
-  .card .price { color: var(--accent-2); font-weight: 700; font-size: 1rem; }
-  .card .uses { font-size: .7rem; color: var(--muted); margin-top: 4px; min-height: 1.2em; }
-  table { width: 100%; border-collapse: collapse; background: var(--panel);
-          border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-  th, td { padding: 10px 14px; text-align: left;
-           border-bottom: 1px solid var(--border); font-size: .9rem;
-           vertical-align: middle; }
-  th { background: var(--panel-2); color: var(--accent);
-       text-transform: uppercase; font-size: .75rem; letter-spacing: .5px; }
-  tr:hover td { background: var(--panel-2); }
-  td.qty { color: var(--good); font-weight: 600; }
-  td.price { color: var(--accent-2); font-weight: 600; }
-  .empty { color: var(--muted); padding: 30px; text-align: center; }
-  .empty-stock { color: var(--muted); font-style: italic; padding: 14px 0; }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px;
-           font-size: .72rem; background: var(--panel-2);
-           border: 1px solid var(--border); }
-  .stock-total { margin-top: 10px; color: var(--accent-2); font-weight: 600; }
-  .edit-input { width: 80px; background: var(--panel-2);
-    border: 1px solid var(--accent); color: var(--text);
-    padding: 4px 8px; border-radius: 4px; font-size: .9rem; outline: none; }
-  .btn { background: var(--panel-2); border: 1px solid var(--border);
-         color: var(--text); padding: 6px 12px; border-radius: 4px;
-         cursor: pointer; font-size: .85rem; transition: .15s; }
-  .btn:hover { border-color: var(--accent); }
-  .btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
-  .btn-danger:hover { background: #e74c3c; border-color: #e74c3c; }
-  .btn-add { background: var(--good); border-color: var(--good); color: #fff; }
-  .btn-add:hover { background: #5cbf60; border-color: #5cbf60; }
-  .edit-toolbar { background: var(--panel); border: 1px solid var(--border);
-    border-radius: 8px; padding: 14px; margin-bottom: 20px;
-    display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-  .edit-toolbar select, .edit-toolbar input { background: var(--panel-2);
-    border: 1px solid var(--border); color: var(--text);
-    padding: 8px 12px; border-radius: 4px; font-size: .9rem; }
-  .edit-toolbar select { min-width: 260px; }
-  .edit-toolbar input { width: 100px; }
-  footer { text-align: center; color: var(--muted); font-size: .8rem; padding: 30px; }
-  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.7);
-    display: flex; align-items: center; justify-content: center; z-index: 1000; }
-  .modal { background: var(--panel); border: 1px solid var(--accent);
-    border-radius: 10px; padding: 24px; max-width: 440px; width: 100%; }
-  .modal h2 { margin: 0 0 14px; font-size: 1.2rem; color: var(--accent); }
-  .modal p { color: var(--muted); font-size: .85rem; margin: 0 0 14px; }
-  .modal input { width: 100%; background: var(--panel-2);
-    border: 1px solid var(--border); color: var(--text);
-    padding: 10px 14px; border-radius: 6px; font-size: 1rem;
-    margin-bottom: 14px; outline: none; }
-  .modal input:focus { border-color: var(--accent); }
-  .modal-buttons { display: flex; gap: 10px; justify-content: flex-end; }
-  .modal-error { color: var(--danger); font-size: .85rem; margin-bottom: 10px; min-height: 1.2em; }
-  .status-banner { padding: 10px 20px; text-align: center; font-size: .9rem; display: none; }
-  .status-banner.show { display: block; }
-  .status-banner.success { background: rgba(76,175,80,.15); color: var(--good); border-bottom: 1px solid var(--good); }
-  .status-banner.error { background: rgba(192,57,43,.15); color: #e74c3c; border-bottom: 1px solid var(--danger); }
-  .status-banner.info { background: rgba(212,160,23,.15); color: var(--accent-2); border-bottom: 1px solid var(--accent); }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:'Segoe UI',Roboto,Arial,sans-serif;
+         background:var(--bg); color:var(--text); }
+  header {
+    background:linear-gradient(135deg,#1a1a1a,#2a2a2a);
+    border-bottom:2px solid var(--accent);
+    padding:20px 30px;
+    display:flex; align-items:center; justify-content:space-between;
+    gap:20px; flex-wrap:wrap;
+  }
+  header h1 { margin:0; font-size:1.6rem; letter-spacing:1px; }
+  header h1 span { color:var(--accent); }
+  header .sub { color:var(--muted); font-size:.9rem; margin-top:4px; }
+  .header-buttons { display:flex; gap:10px; flex-wrap:wrap; }
+  .btn {
+    background:var(--panel-2); border:1px solid var(--border); color:var(--text);
+    padding:9px 16px; border-radius:6px; cursor:pointer; font-size:.88rem;
+    transition:.15s; white-space:nowrap;
+  }
+  .btn:hover { border-color:var(--accent); }
+  .btn-primary { background:var(--accent); border-color:var(--accent); color:#111; font-weight:600; }
+  .btn-primary:hover { background:var(--accent-2); border-color:var(--accent-2); }
+  .btn-good { background:var(--good); border-color:var(--good); color:#fff; }
+  .btn-good:hover { background:#5cbf60; border-color:#5cbf60; }
+  .btn-danger { background:var(--danger); border-color:var(--danger); color:#fff; }
+  .btn-danger:hover { background:#e74c3c; border-color:#e74c3c; }
+  .btn-info { background:var(--info); border-color:var(--info); color:#fff; }
+  .btn-info:hover { background:#42a5f5; border-color:#42a5f5; }
+  .btn.active { background:var(--danger); border-color:var(--danger); color:#fff; }
+  .btn:disabled { opacity:.5; cursor:not-allowed; }
+  .container { max-width:1500px; margin:0 auto; padding:20px 30px 60px; }
+  .toolbar {
+    display:flex; gap:12px; flex-wrap:wrap; margin-bottom:20px;
+    background:var(--panel); border:1px solid var(--border);
+    border-radius:8px; padding:14px;
+  }
+  .toolbar input, .toolbar select {
+    background:var(--panel-2); border:1px solid var(--border); color:var(--text);
+    padding:10px 14px; border-radius:6px; font-size:.95rem; outline:none;
+  }
+  .toolbar input:focus, .toolbar select:focus { border-color:var(--accent); }
+  .toolbar input.search { flex:1; min-width:220px; }
+  .tabs { display:flex; gap:8px; margin-bottom:20px; flex-wrap:wrap; }
+  .tab {
+    background:var(--panel); border:1px solid var(--border); color:var(--muted);
+    padding:10px 18px; border-radius:6px; cursor:pointer; font-size:.9rem;
+    transition:.15s;
+  }
+  .tab:hover { border-color:var(--accent); color:var(--text); }
+  .tab.active { background:var(--accent); color:#111; border-color:var(--accent); font-weight:600; }
+  .grid {
+    display:grid; grid-template-columns:repeat(auto-fill, minmax(200px,1fr));
+    gap:14px;
+  }
+  .card {
+    background:var(--panel); border:1px solid var(--border); border-radius:8px;
+    padding:12px; display:flex; flex-direction:column; align-items:center;
+    text-align:center; transition:.15s; position:relative;
+  }
+  .card:hover { border-color:var(--accent); transform:translateY(-2px); }
+  .card img { width:64px; height:64px; image-rendering:pixelated; margin-bottom:8px; }
+  .card .name { font-size:.88rem; margin-bottom:4px; min-height:2.4em; }
+  .card .cat { font-size:.7rem; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
+  .card .price { color:var(--accent-2); font-weight:700; font-size:1rem; margin-top:4px; }
+  .card .uses { font-size:.7rem; color:var(--muted); margin-top:4px; min-height:1.2em; }
+  .card .actions {
+    position:absolute; top:6px; right:6px; display:none; gap:4px;
+  }
+  .card.edit-mode .actions { display:flex; }
+  .card .actions button {
+    background:rgba(0,0,0,.6); border:1px solid var(--border);
+    color:#fff; width:24px; height:24px; border-radius:4px;
+    cursor:pointer; font-size:.75rem; padding:0;
+  }
+  .card .actions button:hover { border-color:var(--accent); }
+  .card .actions button.del { background:rgba(192,57,43,.7); }
+  table {
+    width:100%; border-collapse:collapse; background:var(--panel);
+    border:1px solid var(--border); border-radius:8px; overflow:hidden;
+    margin-bottom:20px;
+  }
+  th, td {
+    padding:10px 14px; text-align:left; border-bottom:1px solid var(--border);
+    font-size:.9rem; vertical-align:middle;
+  }
+  th {
+    background:var(--panel-2); color:var(--accent); text-transform:uppercase;
+    font-size:.75rem; letter-spacing:.5px;
+  }
+  tr:hover td { background:var(--panel-2); }
+  td.qty { color:var(--good); font-weight:600; }
+  td.price { color:var(--accent-2); font-weight:600; }
+  td.total { color:var(--accent); font-weight:700; }
+  .stock-total {
+    padding:12px 16px; background:var(--panel-2); border:1px solid var(--accent);
+    border-radius:6px; color:var(--accent-2); font-weight:700;
+    margin-bottom:20px; text-align:right;
+  }
+  .stock-block { margin-bottom:30px; }
+  .stock-header {
+    display:flex; justify-content:space-between; align-items:center;
+    margin:24px 0 8px; gap:10px; flex-wrap:wrap;
+  }
+  .stock-header h3 { margin:0; font-size:1.1rem; }
+  .badge {
+    display:inline-block; padding:2px 8px; border-radius:4px;
+    font-size:.72rem; background:var(--panel-2); border:1px solid var(--border);
+    color:var(--muted);
+  }
+  .empty { color:var(--muted); padding:30px; text-align:center; }
+  .empty-stock { color:var(--muted); font-style:italic; padding:14px 0; text-align:center; }
+  .edit-input {
+    width:80px; background:var(--panel-2); border:1px solid var(--accent);
+    color:var(--text); padding:4px 8px; border-radius:4px;
+    font-size:.9rem; outline:none;
+  }
+  .edit-toolbar {
+    background:var(--panel); border:1px solid var(--border); border-radius:8px;
+    padding:14px; margin-bottom:20px;
+    display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+  }
+  .edit-toolbar select, .edit-toolbar input {
+    background:var(--panel-2); border:1px solid var(--border); color:var(--text);
+    padding:8px 12px; border-radius:4px; font-size:.9rem;
+  }
+  .edit-toolbar select { min-width:220px; flex:1; max-width:400px; }
+  .edit-toolbar input { width:110px; }
+  footer { text-align:center; color:var(--muted); font-size:.8rem; padding:30px; }
+  .modal-backdrop {
+    position:fixed; inset:0; background:rgba(0,0,0,.75);
+    display:flex; align-items:center; justify-content:center; z-index:1000;
+    padding:20px;
+  }
+  .modal {
+    background:var(--panel); border:1px solid var(--accent); border-radius:10px;
+    padding:24px; max-width:500px; width:100%;
+    max-height:90vh; overflow-y:auto;
+  }
+  .modal h2 { margin:0 0 14px; font-size:1.2rem; color:var(--accent); }
+  .modal label {
+    display:block; color:var(--muted); font-size:.85rem;
+    margin:10px 0 4px;
+  }
+  .modal input, .modal select {
+    width:100%; background:var(--panel-2); border:1px solid var(--border);
+    color:var(--text); padding:10px 14px; border-radius:6px;
+    font-size:1rem; outline:none;
+  }
+  .modal input:focus, .modal select:focus { border-color:var(--accent); }
+  .modal-buttons {
+    display:flex; gap:10px; justify-content:flex-end; margin-top:20px;
+  }
+  .modal-error { color:var(--danger); font-size:.85rem; min-height:1.2em; }
+  .status-banner {
+    padding:10px 20px; text-align:center; font-size:.9rem; display:none;
+  }
+  .status-banner.show { display:block; }
+  .status-banner.success { background:rgba(76,175,80,.15); color:var(--good); border-bottom:1px solid var(--good); }
+  .status-banner.error { background:rgba(192,57,43,.15); color:#e74c3c; border-bottom:1px solid var(--danger); }
+  .status-banner.info { background:rgba(212,160,23,.15); color:var(--accent-2); border-bottom:1px solid var(--accent); }
+  .export-bar {
+    display:flex; gap:10px; flex-wrap:wrap; margin-bottom:20px;
+    padding:14px; background:var(--panel); border:1px solid var(--border);
+    border-radius:8px;
+  }
+  .export-bar .label {
+    color:var(--muted); font-size:.9rem; align-self:center; margin-right:10px;
+  }
+  @media (max-width:600px) {
+    .container { padding:14px; }
+    header { padding:14px; }
+    .grid { grid-template-columns:repeat(auto-fill, minmax(150px,1fr)); }
+  }
 </style>
 </head>
 <body>
 <header>
   <div>
     <h1>Кооператив <span>— Торговая фракция</span></h1>
-    <div class="sub">Каталог ресурсов · Склад фракции · Склады участников · Цены в гайках за 1 шт.</div>
+    <div class="sub">Каталог ресурсов · Склады · Редактирование · Экспорт в PDF и Excel</div>
   </div>
   <div class="header-buttons">
-    <button id="saveBtn" class="save-btn" style="display:none;">💾 Сохранить на GitHub</button>
-    <button id="editToggle" class="edit-btn">🔒 Режим редактирования</button>
+    <button id="importBtn" class="btn">📥 Импорт JSON</button>
+    <button id="exportJsonBtn" class="btn">📤 Экспорт JSON</button>
+    <button id="editToggle" class="btn">🔒 Режим редактирования</button>
   </div>
 </header>
 
@@ -135,300 +268,290 @@
 
   <section id="tab-catalog">
     <div class="toolbar">
-      <input id="search" type="text" placeholder="Поиск по названию…">
-      <select id="categoryFilter">
-        <option value="">Все категории</option>
-        <option value="Оружие">Оружие</option>
-        <option value="Патроны">Патроны</option>
-        <option value="Электроника">Электроника</option>
-        <option value="Мелочь">Мелочь</option>
-        <option value="Инструменты">Инструменты</option>
-        <option value="Автомобиль">Автомобиль</option>
-        <option value="Броня">Броня</option>
-      </select>
+      <input id="search" type="text" class="search" placeholder="Поиск по названию…">
+      <select id="categoryFilter"><option value="">Все категории</option></select>
       <select id="sortBy">
         <option value="name">Сортировка: по названию</option>
         <option value="priceAsc">Цена ↑</option>
         <option value="priceDesc">Цена ↓</option>
       </select>
+      <button id="addResourceBtn" class="btn btn-good" style="display:none;">+ Добавить ресурс</button>
     </div>
+
+    <div class="export-bar">
+      <span class="label">Экспорт каталога:</span>
+      <button id="exportCatalogPdf" class="btn btn-danger">📄 PDF</button>
+      <button id="exportCatalogXlsx" class="btn btn-good">📊 Excel</button>
+    </div>
+
     <div id="catalogGrid" class="grid"></div>
   </section>
 
   <section id="tab-faction" style="display:none">
     <div class="toolbar">
-      <input id="searchFaction" type="text" placeholder="Поиск по складу фракции…">
+      <input id="searchFaction" type="text" class="search" placeholder="Поиск по складу фракции…">
     </div>
     <div id="factionEditBar"></div>
+    <div class="export-bar">
+      <span class="label">Экспорт складов (все вместе):</span>
+      <button id="exportStocksPdf" class="btn btn-danger">📄 PDF</button>
+      <button id="exportStocksXlsx" class="btn btn-good">📊 Excel</button>
+    </div>
     <div id="factionWrap"></div>
   </section>
 
   <section id="tab-players" style="display:none">
     <div class="toolbar">
-      <input id="searchPlayers" type="text" placeholder="Поиск по игроку или ресурсу…">
+      <input id="searchPlayers" type="text" class="search" placeholder="Поиск по игроку или ресурсу…">
+      <button id="addPlayerBtn" class="btn btn-good" style="display:none;">+ Добавить игрока</button>
     </div>
-    <div id="playersEditBar"></div>
+    <div class="export-bar">
+      <span class="label">Экспорт складов (все вместе):</span>
+      <button id="exportStocksPdf2" class="btn btn-danger">📄 PDF</button>
+      <button id="exportStocksXlsx2" class="btn btn-good">📊 Excel</button>
+    </div>
     <div id="playersWrap"></div>
   </section>
 </div>
 
-<footer>Кооператив · данные хранятся в репозитории GitHub · валюта: гайка</footer>
+<footer>Кооператив · данные хранятся в браузере (localStorage) · валюта: гайка</footer>
 
 <script>
 /* ============================================================
-   КОНФИГУРАЦИЯ GITHUB
-   ЗАМЕНИТЕ НА СВОИ ДАННЫЕ!
+   КОНСТАНТЫ
    ============================================================ */
-const GITHUB_OWNER  = "ВАШ_НИК";
-const GITHUB_REPO   = "koop-site";
-const GITHUB_BRANCH = "main";
-const GITHUB_PATH   = "data/stocks.json";
-
 const EDIT_PASSWORD = "9844";
-const STORAGE_KEY_TOKEN = "koop_github_token";
+const STORAGE_KEY = "koop_editor_v2";
 
 /* ============================================================
-   1. РЕЕСТР РЕСУРСОВ
-   Названия — точно из ru_ru.json мода ittems
-   Цена указана за 1 шт. в гайках
+   1. ДЕФОЛТНЫЙ РЕЕСТР РЕСУРСОВ
    ============================================================ */
-const RESOURCES = [
-  // ========== ОРУЖИЕ ==========
-  { id: "stvol_vintovka",        cat: "Оружие", name: "Винтовочный ствол",                price: 25, uses: "—" },
-  { id: "stvol_pistolet",        cat: "Оружие", name: "Пистолетный ствол",                price: 15, uses: "—" },
-  { id: "stvol_drobovik",        cat: "Оружие", name: "Оружейный ствол",                  price: 18, uses: "—" },
-  { id: "zatvor_ak",             cat: "Оружие", name: "Затворная рама",                   price: 12, uses: "—" },
-  { id: "zatvor_vintovka",       cat: "Оружие", name: "Продольно-скользящий затвор",      price: 20, uses: "—" },
-  { id: "zatvor_pistolet",       cat: "Оружие", name: "Затвор пистолета",                 price: 10, uses: "—" },
-  { id: "pruzhina_boevaya",      cat: "Оружие", name: "Боевая пружина",                   price: 4,  uses: "—" },
-  { id: "pruzhina_vozvrat",      cat: "Оружие", name: "Возвратная пружина",               price: 3,  uses: "—" },
-  { id: "usm_detali",            cat: "Оружие", name: "Детали УСМ",                       price: 8,  uses: "—" },
-  { id: "priklad_derevo",        cat: "Оружие", name: "Деревянный приклад",               price: 6,  uses: "—" },
-  { id: "priklad_carbon",        cat: "Оружие", name: "Карбоновый приклад",               price: 15, uses: "—" },
-  { id: "priklad_skladnoy",      cat: "Оружие", name: "Рамочный складной приклад",        price: 12, uses: "—" },
-  { id: "rukoyatka_pistolet",    cat: "Оружие", name: "Бакелитовая рукоятка",             price: 4,  uses: "—" },
-  { id: "tsevye_plastik",        cat: "Оружие", name: "Полимерное цевьё",                  price: 5,  uses: "—" },
-  { id: "tsevye_metall",         cat: "Оружие", name: "Металлическое цевьё",               price: 8,  uses: "—" },
-  { id: "tsevye_derevo",         cat: "Оружие", name: "Деревянное цевьё",                  price: 4,  uses: "—" },
-  { id: "magazin_korpus",        cat: "Оружие", name: "Корпус магазина",                   price: 6,  uses: "—" },
-  { id: "magazin_pruzhina",      cat: "Оружие", name: "Пружина магазина",                 price: 3,  uses: "—" },
-  { id: "podatnik_magazin",      cat: "Оружие", name: "Податчик патронов",                 price: 4,  uses: "—" },
-  { id: "boyok",                 cat: "Оружие", name: "Стальной боёк",                     price: 4,  uses: "—" },
-  { id: "boyok_ruzhye",          cat: "Оружие", name: "Боёк для двустволки",               price: 5,  uses: "—" },
-  { id: "gazovaya_trubka",       cat: "Оружие", name: "Газовая трубка",                    price: 5,  uses: "—" },
-  { id: "dula_tormoz",           cat: "Оружие", name: "Дульный тормоз-компенсатор",        price: 10, uses: "—" },
-  { id: "optika_linza",          cat: "Оружие", name: "Разбитая линза прицела",            price: 12, uses: "—" },
-  { id: "kreplenie_lastochka",   cat: "Оружие", name: "Крепление Ласточкин хвост",         price: 8,  uses: "—" },
-  { id: "kreplenie_nato",        cat: "Оружие", name: "Западное крепление",                price: 10, uses: "—" },
-  { id: "ramka_pistolet",        cat: "Оружие", name: "Пистолетная рамка",                 price: 8,  uses: "—" },
-  { id: "shampol",               cat: "Оружие", name: "Оружейный шомпол",                  price: 2,  uses: "—" },
-  { id: "kryshka_stv_kor",       cat: "Оружие", name: "Крышка ствольной коробки",          price: 6,  uses: "—" },
-  { id: "predorhanitel_ognya",   cat: "Оружие", name: "Предохранитель",                    price: 3,  uses: "—" },
-  { id: "ottyazhka_trosa",       cat: "Оружие", name: "Стальной тросик затвора",           price: 4,  uses: "—" },
-  { id: "mushka_pered",          cat: "Оружие", name: "Мушка",                             price: 3,  uses: "—" },
-  { id: "tselik_zad",            cat: "Оружие", name: "Целик",                             price: 3,  uses: "—" },
-  { id: "vkladysh_stvol",        cat: "Оружие", name: "Ствольный вкладыш",                 price: 6,  uses: "—" },
-  { id: "zatvornaya_zaderzh",    cat: "Оружие", name: "Затворная задержка",                price: 4,  uses: "—" },
-  { id: "vybrasyvatel",          cat: "Оружие", name: "Экстрактор",                        price: 4,  uses: "—" },
-  { id: "sheptalo",              cat: "Оружие", name: "Шептало",                           price: 3,  uses: "—" },
-  { id: "nakladka_gaz",          cat: "Оружие", name: "Накладка газовой трубки",           price: 4,  uses: "—" },
-  { id: "stopornoe_koltso",      cat: "Оружие", name: "Стопорное кольцо",                   price: 2,  uses: "—" },
-  { id: "vtulka_perehod",        cat: "Оружие", name: "Переходная втулка ствола",          price: 5,  uses: "—" },
-  { id: "gajka_stvol",           cat: "Оружие", name: "Ствольная гайка",                    price: 3,  uses: "—" },
-  { id: "podschechnik",          cat: "Оружие", name: "Кожаный подщечник",                  price: 4,  uses: "—" },
+const DEFAULT_RESOURCES = [
+  { id:"stvol_vintovka", cat:"Оружие", name:"Винтовочный ствол", price:25, uses:"" },
+  { id:"stvol_pistolet", cat:"Оружие", name:"Пистолетный ствол", price:15, uses:"" },
+  { id:"stvol_drobovik", cat:"Оружие", name:"Оружейный ствол", price:18, uses:"" },
+  { id:"zatvor_ak", cat:"Оружие", name:"Затворная рама", price:12, uses:"" },
+  { id:"zatvor_vintovka", cat:"Оружие", name:"Продольно-скользящий затвор", price:20, uses:"" },
+  { id:"zatvor_pistolet", cat:"Оружие", name:"Затвор пистолета", price:10, uses:"" },
+  { id:"pruzhina_boevaya", cat:"Оружие", name:"Боевая пружина", price:4, uses:"" },
+  { id:"pruzhina_vozvrat", cat:"Оружие", name:"Возвратная пружина", price:3, uses:"" },
+  { id:"usm_detali", cat:"Оружие", name:"Детали УСМ", price:8, uses:"" },
+  { id:"priklad_derevo", cat:"Оружие", name:"Деревянный приклад", price:6, uses:"" },
+  { id:"priklad_carbon", cat:"Оружие", name:"Карбоновый приклад", price:15, uses:"" },
+  { id:"priklad_skladnoy", cat:"Оружие", name:"Рамочный складной приклад", price:12, uses:"" },
+  { id:"rukoyatka_pistolet", cat:"Оружие", name:"Бакелитовая рукоятка", price:4, uses:"" },
+  { id:"tsevye_plastik", cat:"Оружие", name:"Полимерное цевьё", price:5, uses:"" },
+  { id:"tsevye_metall", cat:"Оружие", name:"Металлическое цевьё", price:8, uses:"" },
+  { id:"tsevye_derevo", cat:"Оружие", name:"Деревянное цевьё", price:4, uses:"" },
+  { id:"magazin_korpus", cat:"Оружие", name:"Корпус магазина", price:6, uses:"" },
+  { id:"magazin_pruzhina", cat:"Оружие", name:"Пружина магазина", price:3, uses:"" },
+  { id:"podatnik_magazin", cat:"Оружие", name:"Податчик патронов", price:4, uses:"" },
+  { id:"boyok", cat:"Оружие", name:"Стальной боёк", price:4, uses:"" },
+  { id:"boyok_ruzhye", cat:"Оружие", name:"Боёк для двустволки", price:5, uses:"" },
+  { id:"gazovaya_trubka", cat:"Оружие", name:"Газовая трубка", price:5, uses:"" },
+  { id:"dula_tormoz", cat:"Оружие", name:"Дульный тормоз-компенсатор", price:10, uses:"" },
+  { id:"optika_linza", cat:"Оружие", name:"Разбитая линза прицела", price:12, uses:"" },
+  { id:"kreplenie_lastochka", cat:"Оружие", name:"Крепление Ласточкин хвост", price:8, uses:"" },
+  { id:"kreplenie_nato", cat:"Оружие", name:"Западное крепление", price:10, uses:"" },
+  { id:"ramka_pistolet", cat:"Оружие", name:"Пистолетная рамка", price:8, uses:"" },
+  { id:"shampol", cat:"Оружие", name:"Оружейный шомпол", price:2, uses:"" },
+  { id:"kryshka_stv_kor", cat:"Оружие", name:"Крышка ствольной коробки", price:6, uses:"" },
+  { id:"predorhanitel_ognya", cat:"Оружие", name:"Предохранитель", price:3, uses:"" },
+  { id:"ottyazhka_trosa", cat:"Оружие", name:"Стальной тросик затвора", price:4, uses:"" },
+  { id:"mushka_pered", cat:"Оружие", name:"Мушка", price:3, uses:"" },
+  { id:"tselik_zad", cat:"Оружие", name:"Целик", price:3, uses:"" },
+  { id:"vkladysh_stvol", cat:"Оружие", name:"Ствольный вкладыш", price:6, uses:"" },
+  { id:"zatvornaya_zaderzh", cat:"Оружие", name:"Затворная задержка", price:4, uses:"" },
+  { id:"vybrasyvatel", cat:"Оружие", name:"Экстрактор", price:4, uses:"" },
+  { id:"sheptalo", cat:"Оружие", name:"Шептало", price:3, uses:"" },
+  { id:"nakladka_gaz", cat:"Оружие", name:"Накладка газовой трубки", price:4, uses:"" },
+  { id:"stopornoe_koltso", cat:"Оружие", name:"Стопорное кольцо", price:2, uses:"" },
+  { id:"vtulka_perehod", cat:"Оружие", name:"Переходная втулка ствола", price:5, uses:"" },
+  { id:"gajka_stvol", cat:"Оружие", name:"Ствольная гайка", price:3, uses:"" },
+  { id:"podschechnik", cat:"Оружие", name:"Кожаный подщечник", price:4, uses:"" },
 
-  // ========== ПАТРОНЫ ==========
-  { id: "gilza_pistolet",        cat: "Патроны", name: "Пистолетная гильза",               price: 1,  uses: "—" },
-  { id: "gilza_vintovka",        cat: "Патроны", name: "Винтовочная гильза",               price: 2,  uses: "—" },
-  { id: "gilza_drobovik",        cat: "Патроны", name: "Гильза ружья",                      price: 1,  uses: "—" },
-  { id: "gilza_sniper",          cat: "Патроны", name: "Гильза снайперки",                  price: 3,  uses: "—" },
-  { id: "kapsul_vosh",           cat: "Патроны", name: "Капсюль",                           price: 2,  uses: "—" },
-  { id: "poroh_banka",           cat: "Патроны", name: "Банка пороха",                      price: 8,  uses: "—" },
-  { id: "drob_svinets",          cat: "Патроны", name: "Мешочек с дробью",                  price: 3,  uses: "—" },
-  { id: "pulya_obolochka",       cat: "Патроны", name: "Оболочечная пуля",                  price: 2,  uses: "—" },
-  { id: "pulya_serdtsevin",      cat: "Патроны", name: "Стальной сердечник пули",          price: 4,  uses: "—" },
-  { id: "pizh_voylok",           cat: "Патроны", name: "Войлочный пыж",                     price: 1,  uses: "—" },
-  { id: "vesy_naveska",          cat: "Патроны", name: "Аптекарские весы",                  price: 6,  uses: "—" },
-  { id: "tsement_pulya",         cat: "Патроны", name: "Форма для отливки пуль",            price: 5,  uses: "—" },
-  { id: "splav_svinets",         cat: "Патроны", name: "Слиток грязного свинца",            price: 3,  uses: "—" },
-  { id: "poroh_stary",           cat: "Патроны", name: "Слежавшийся порох",                 price: 3,  uses: "—" },
-  { id: "kontejner_drob",        cat: "Патроны", name: "Пластиковый контейнер для дроби",   price: 2,  uses: "—" },
-  { id: "korobka_patrony",       cat: "Патроны", name: "Пустая картонная пачка",            price: 1,  uses: "—" },
-  { id: "pulya_expansiv",        cat: "Патроны", name: "Деформированная пуля",              price: 2,  uses: "—" },
-  { id: "pulya_trassir",         cat: "Патроны", name: "Наконечник трассирующей пули",      price: 4,  uses: "—" },
-  { id: "sero_paket",            cat: "Патроны", name: "Пакет серы",                        price: 2,  uses: "—" },
-  { id: "selitra_paket",         cat: "Патроны", name: "Пакет селитры",                     price: 2,  uses: "—" },
-  { id: "ugol_aktiv",            cat: "Патроны", name: "Уголь для пороховой смеси",         price: 2,  uses: "—" },
-  { id: "svinets_kartech",       cat: "Патроны", name: "Картечь",                           price: 3,  uses: "—" },
-  { id: "trubka_gilza",          cat: "Патроны", name: "Пластиковая трубка гильзы",         price: 1,  uses: "—" },
+  { id:"gilza_pistolet", cat:"Патроны", name:"Пистолетная гильза", price:1, uses:"" },
+  { id:"gilza_vintovka", cat:"Патроны", name:"Винтовочная гильза", price:2, uses:"" },
+  { id:"gilza_drobovik", cat:"Патроны", name:"Гильза ружья", price:1, uses:"" },
+  { id:"gilza_sniper", cat:"Патроны", name:"Гильза снайперки", price:3, uses:"" },
+  { id:"kapsul_vosh", cat:"Патроны", name:"Капсюль", price:2, uses:"" },
+  { id:"poroh_banka", cat:"Патроны", name:"Банка пороха", price:8, uses:"" },
+  { id:"drob_svinets", cat:"Патроны", name:"Мешочек с дробью", price:3, uses:"" },
+  { id:"pulya_obolochka", cat:"Патроны", name:"Оболочечная пуля", price:2, uses:"" },
+  { id:"pulya_serdtsevin", cat:"Патроны", name:"Стальной сердечник пули", price:4, uses:"" },
+  { id:"pizh_voylok", cat:"Патроны", name:"Войлочный пыж", price:1, uses:"" },
+  { id:"vesy_naveska", cat:"Патроны", name:"Аптекарские весы", price:6, uses:"" },
+  { id:"tsement_pulya", cat:"Патроны", name:"Форма для отливки пуль", price:5, uses:"" },
+  { id:"splav_svinets", cat:"Патроны", name:"Слиток грязного свинца", price:3, uses:"" },
+  { id:"poroh_stary", cat:"Патроны", name:"Слежавшийся порох", price:3, uses:"" },
+  { id:"kontejner_drob", cat:"Патроны", name:"Пластиковый контейнер для дроби", price:2, uses:"" },
+  { id:"korobka_patrony", cat:"Патроны", name:"Пустая картонная пачка", price:1, uses:"" },
+  { id:"pulya_expansiv", cat:"Патроны", name:"Деформированная пуля", price:2, uses:"" },
+  { id:"pulya_trassir", cat:"Патроны", name:"Наконечник трассирующей пули", price:4, uses:"" },
+  { id:"sero_paket", cat:"Патроны", name:"Пакет серы", price:2, uses:"" },
+  { id:"selitra_paket", cat:"Патроны", name:"Пакет селитры", price:2, uses:"" },
+  { id:"ugol_aktiv", cat:"Патроны", name:"Уголь для пороховой смеси", price:2, uses:"" },
+  { id:"svinets_kartech", cat:"Патроны", name:"Картечь", price:3, uses:"" },
+  { id:"trubka_gilza", cat:"Патроны", name:"Пластиковая трубка гильзы", price:1, uses:"" },
 
-  // ========== ЭЛЕКТРОНИКА ==========
-  { id: "plata_tv",              cat: "Электроника", name: "Плата от старого телевизора",   price: 20, uses: "Шпион, Тень" },
-  { id: "kondensator",           cat: "Электроника", name: "Конденсатор",                   price: 2,  uses: "—" },
-  { id: "mednaya_obmotka",       cat: "Электроника", name: "Медная обмотка",                price: 3,  uses: "—" },
-  { id: "transformator",         cat: "Электроника", name: "Трансформатор",                 price: 5,  uses: "—" },
-  { id: "trubka_med",            cat: "Электроника", name: "Медная трубка",                 price: 3,  uses: "—" },
-  { id: "provodka_zhgut",        cat: "Электроника", name: "Жгут проводов",                 price: 5,  uses: "Бастион" },
-  { id: "rezinovy_uplot",        cat: "Электроника", name: "Резиновый уплотнитель",         price: 4,  uses: "Химера, ОЗК, Дезертир" },
-  { id: "shesternya_stal",       cat: "Электроника", name: "Стальная шестерня",             price: 12, uses: "Бастион" },
-  { id: "podshipnik_rzhavy",     cat: "Электроника", name: "Ржавый подшипник",              price: 6,  uses: "Бастион" },
-  { id: "radiolampa",            cat: "Электроника", name: "Радиолампа",                    price: 4,  uses: "—" },
-  { id: "dinamik_maly",          cat: "Электроника", name: "Маленький динамик",             price: 3,  uses: "—" },
-  { id: "batareyka_kron",        cat: "Электроника", name: "Севшая батарейка",              price: 15, uses: "Шпион, Тень" },
-  { id: "displej_nokia",         cat: "Электроника", name: "Разбитый дисплей",              price: 6,  uses: "—" },
-  { id: "knopka_tumbler",        cat: "Электроника", name: "Тумблер",                       price: 2,  uses: "—" },
-  { id: "magnit_ferrit",         cat: "Электроника", name: "Ферритовый магнит",             price: 4,  uses: "—" },
-  { id: "motorchik",             cat: "Электроника", name: "Моторчик",                      price: 18, uses: "Бастион" },
-  { id: "lampa_nakal",           cat: "Электроника", name: "Лампочка",                      price: 2,  uses: "—" },
-  { id: "rele_povorot",          cat: "Электроника", name: "Реле поворотов",                 price: 2,  uses: "—" },
-  { id: "rezistor_peremen",      cat: "Электроника", name: "Резистор",                       price: 2,  uses: "—" },
-  { id: "provod_katushka",       cat: "Электроника", name: "Катушка провода",                price: 2,  uses: "—" },
-  { id: "akkum_vzdut",           cat: "Электроника", name: "Вздутый аккумулятор",            price: 5,  uses: "—" },
-  { id: "antena_teleskop",       cat: "Электроника", name: "Телескопическая антенна",        price: 5,  uses: "—" },
-  { id: "diod_most",             cat: "Электроника", name: "Диодный мост",                   price: 2,  uses: "—" },
-  { id: "plashka_pamyat",        cat: "Электроника", name: "Планка ОЗУ",                     price: 8,  uses: "—" },
-  { id: "radiator_alyum",        cat: "Электроника", name: "Алюминиевый радиатор",           price: 4,  uses: "—" },
-  { id: "plashka_mikro",         cat: "Электроника", name: "Микросхема",                     price: 10, uses: "—" },
-  { id: "piezo_element",         cat: "Электроника", name: "Пьеза",                          price: 3,  uses: "—" },
-  { id: "katushka_zazhig",       cat: "Электроника", name: "Катушка зажигания",              price: 4,  uses: "—" },
+  { id:"plata_tv", cat:"Электроника", name:"Плата от старого телевизора", price:20, uses:"Шпион, Тень" },
+  { id:"kondensator", cat:"Электроника", name:"Конденсатор", price:2, uses:"" },
+  { id:"mednaya_obmotka", cat:"Электроника", name:"Медная обмотка", price:3, uses:"" },
+  { id:"transformator", cat:"Электроника", name:"Трансформатор", price:5, uses:"" },
+  { id:"trubka_med", cat:"Электроника", name:"Медная трубка", price:3, uses:"" },
+  { id:"provodka_zhgut", cat:"Электроника", name:"Жгут проводов", price:5, uses:"Бастион" },
+  { id:"rezinovy_uplot", cat:"Электроника", name:"Резиновый уплотнитель", price:4, uses:"Химера, ОЗК, Дезертир" },
+  { id:"shesternya_stal", cat:"Электроника", name:"Стальная шестерня", price:12, uses:"Бастион" },
+  { id:"podshipnik_rzhavy", cat:"Электроника", name:"Ржавый подшипник", price:6, uses:"Бастион" },
+  { id:"radiolampa", cat:"Электроника", name:"Радиолампа", price:4, uses:"" },
+  { id:"dinamik_maly", cat:"Электроника", name:"Маленький динамик", price:3, uses:"" },
+  { id:"batareyka_kron", cat:"Электроника", name:"Севшая батарейка", price:15, uses:"Шпион, Тень" },
+  { id:"displej_nokia", cat:"Электроника", name:"Разбитый дисплей", price:6, uses:"" },
+  { id:"knopka_tumbler", cat:"Электроника", name:"Тумблер", price:2, uses:"" },
+  { id:"magnit_ferrit", cat:"Электроника", name:"Ферритовый магнит", price:4, uses:"" },
+  { id:"motorchik", cat:"Электроника", name:"Моторчик", price:18, uses:"Бастион" },
+  { id:"lampa_nakal", cat:"Электроника", name:"Лампочка", price:2, uses:"" },
+  { id:"rele_povorot", cat:"Электроника", name:"Реле поворотов", price:2, uses:"" },
+  { id:"rezistor_peremen", cat:"Электроника", name:"Резистор", price:2, uses:"" },
+  { id:"provod_katushka", cat:"Электроника", name:"Катушка провода", price:2, uses:"" },
+  { id:"akkum_vzdut", cat:"Электроника", name:"Вздутый аккумулятор", price:5, uses:"" },
+  { id:"antena_teleskop", cat:"Электроника", name:"Телескопическая антенна", price:5, uses:"" },
+  { id:"diod_most", cat:"Электроника", name:"Диодный мост", price:2, uses:"" },
+  { id:"plashka_pamyat", cat:"Электроника", name:"Планка ОЗУ", price:8, uses:"" },
+  { id:"radiator_alyum", cat:"Электроника", name:"Алюминиевый радиатор", price:4, uses:"" },
+  { id:"plashka_mikro", cat:"Электроника", name:"Микросхема", price:10, uses:"" },
+  { id:"piezo_element", cat:"Электроника", name:"Пьеза", price:3, uses:"" },
+  { id:"katushka_zazhig", cat:"Электроника", name:"Катушка зажигания", price:4, uses:"" },
 
-  // ========== МЕЛОЧЬ ==========
-  { id: "gvozd_gnuty",           cat: "Мелочь", name: "Гнутый гвоздь",                       price: 1,  uses: "—" },
-  { id: "bolt_gaika",            cat: "Мелочь", name: "Набор болтов и гаек",                 price: 1,  uses: "—" },
-  { id: "izolenta_sinyaya",      cat: "Мелочь", name: "Остатки изоленты",                    price: 1,  uses: "—" },
-  { id: "kley_moment",           cat: "Мелочь", name: "Засохший тюбик клея",                 price: 2,  uses: "—" },
-  { id: "tsep_metall",           cat: "Мелочь", name: "Обрывок цепи",                        price: 2,  uses: "—" },
-  { id: "armatura_kusok",        cat: "Мелочь", name: "Кусок арматуры",                      price: 2,  uses: "—" },
-  { id: "zhest_list",            cat: "Мелочь", name: "Лист жести",                          price: 1,  uses: "—" },
-  { id: "kozha_obrezki",         cat: "Мелочь", name: "Обрезки грубой кожи",                 price: 3,  uses: "Почти все брони" },
-  { id: "tkanevaya_vetosh",      cat: "Мелочь", name: "Промасленная ветошь",                 price: 1,  uses: "Шелест" },
-  { id: "banka_konservy",        cat: "Мелочь", name: "Пустая консервная банка",             price: 1,  uses: "—" },
-  { id: "gazeta_soviet",         cat: "Мелочь", name: "Обрывок газеты",                      price: 1,  uses: "—" },
-  { id: "chasy_mehanika",        cat: "Мелочь", name: "Сломанные наручные часы",             price: 5,  uses: "—" },
-  { id: "zazhigalka_empty",      cat: "Мелочь", name: "Пустая зажигалка",                    price: 1,  uses: "—" },
-  { id: "klyuch_rzhavy",         cat: "Мелочь", name: "Ржавый ключ",                         price: 1,  uses: "—" },
-  { id: "zerkalo_oskolok",       cat: "Мелочь", name: "Осколок зеркала",                     price: 10, uses: "Шпион" },
-  { id: "flaga_alyum",           cat: "Мелочь", name: "Помятая фляга",                       price: 2,  uses: "—" },
-  { id: "kanifol",               cat: "Мелочь", name: "Баночка канифоли",                     price: 2,  uses: "—" },
-  { id: "pripoy_olovo",          cat: "Мелочь", name: "Капля припоя",                        price: 2,  uses: "—" },
-  { id: "lozhka_alyum",          cat: "Мелочь", name: "Гнутая ложка",                        price: 1,  uses: "—" },
-  { id: "vilka_nerzh",           cat: "Мелочь", name: "Стальная вилка",                      price: 1,  uses: "—" },
-  { id: "ochi_broken",           cat: "Мелочь", name: "Треснувшие очки",                     price: 2,  uses: "—" },
-  { id: "portsigar_med",         cat: "Мелочь", name: "Медный портсигар",                    price: 3,  uses: "—" },
-  { id: "rascheska_plast",       cat: "Мелочь", name: "Сломанная расческа",                  price: 1,  uses: "—" },
-  { id: "britva_opas",           cat: "Мелочь", name: "Опасная бритва",                      price: 4,  uses: "—" },
-  { id: "moneta_sssr",           cat: "Мелочь", name: "Затертая монета",                     price: 1,  uses: "—" },
-  { id: "foto_kartochka",        cat: "Мелочь", name: "Выцветшее фото",                      price: 1,  uses: "—" },
-  { id: "vilochka_rozet",        cat: "Мелочь", name: "Штепсельная вилка",                   price: 1,  uses: "—" },
-  { id: "zamok_navesnoy",        cat: "Мелочь", name: "Навесной замок",                      price: 3,  uses: "—" },
-  { id: "ampula_steklo",         cat: "Мелочь", name: "Пустая ампула",                       price: 1,  uses: "—" },
-  { id: "bint_gryazny",          cat: "Мелочь", name: "Использованный бинт",                 price: 1,  uses: "—" },
-  { id: "probka_rezina",         cat: "Мелочь", name: "Резиновая аптечная пробка",           price: 3,  uses: "ОЗК, Химера, Дезертир" },
-  { id: "shprits_stary",         cat: "Мелочь", name: "Стеклянный шприц",                    price: 2,  uses: "—" },
-  { id: "setka_rabitsa",         cat: "Мелочь", name: "Клочок сетки-рабицы",                 price: 1,  uses: "—" },
-  { id: "izolyat_keram",         cat: "Мелочь", name: "Керамический изолятор",               price: 2,  uses: "—" },
-  { id: "shlak_metall",          cat: "Мелочь", name: "Металлический шлак",                  price: 1,  uses: "—" },
-  { id: "setka_filtr",           cat: "Мелочь", name: "Сетка бензонасоса",                   price: 1,  uses: "—" },
-  { id: "uplotnitel_grm",        cat: "Мелочь", name: "Резиновая прокладка",                 price: 2,  uses: "—" },
+  { id:"gvozd_gnuty", cat:"Мелочь", name:"Гнутый гвоздь", price:1, uses:"" },
+  { id:"bolt_gaika", cat:"Мелочь", name:"Набор болтов и гаек", price:1, uses:"" },
+  { id:"izolenta_sinyaya", cat:"Мелочь", name:"Остатки изоленты", price:1, uses:"" },
+  { id:"kley_moment", cat:"Мелочь", name:"Засохший тюбик клея", price:2, uses:"" },
+  { id:"tsep_metall", cat:"Мелочь", name:"Обрывок цепи", price:2, uses:"" },
+  { id:"armatura_kusok", cat:"Мелочь", name:"Кусок арматуры", price:2, uses:"" },
+  { id:"zhest_list", cat:"Мелочь", name:"Лист жести", price:1, uses:"" },
+  { id:"kozha_obrezki", cat:"Мелочь", name:"Обрезки грубой кожи", price:3, uses:"Почти все брони" },
+  { id:"tkanevaya_vetosh", cat:"Мелочь", name:"Промасленная ветошь", price:1, uses:"Шелест" },
+  { id:"banka_konservy", cat:"Мелочь", name:"Пустая консервная банка", price:1, uses:"" },
+  { id:"gazeta_soviet", cat:"Мелочь", name:"Обрывок газеты", price:1, uses:"" },
+  { id:"chasy_mehanika", cat:"Мелочь", name:"Сломанные наручные часы", price:5, uses:"" },
+  { id:"zazhigalka_empty", cat:"Мелочь", name:"Пустая зажигалка", price:1, uses:"" },
+  { id:"klyuch_rzhavy", cat:"Мелочь", name:"Ржавый ключ", price:1, uses:"" },
+  { id:"zerkalo_oskolok", cat:"Мелочь", name:"Осколок зеркала", price:10, uses:"Шпион" },
+  { id:"flaga_alyum", cat:"Мелочь", name:"Помятая фляга", price:2, uses:"" },
+  { id:"kanifol", cat:"Мелочь", name:"Баночка канифоли", price:2, uses:"" },
+  { id:"pripoy_olovo", cat:"Мелочь", name:"Капля припоя", price:2, uses:"" },
+  { id:"lozhka_alyum", cat:"Мелочь", name:"Гнутая ложка", price:1, uses:"" },
+  { id:"vilka_nerzh", cat:"Мелочь", name:"Стальная вилка", price:1, uses:"" },
+  { id:"ochi_broken", cat:"Мелочь", name:"Треснувшие очки", price:2, uses:"" },
+  { id:"portsigar_med", cat:"Мелочь", name:"Медный портсигар", price:3, uses:"" },
+  { id:"rascheska_plast", cat:"Мелочь", name:"Сломанная расческа", price:1, uses:"" },
+  { id:"britva_opas", cat:"Мелочь", name:"Опасная бритва", price:4, uses:"" },
+  { id:"moneta_sssr", cat:"Мелочь", name:"Затертая монета", price:1, uses:"" },
+  { id:"foto_kartochka", cat:"Мелочь", name:"Выцветшее фото", price:1, uses:"" },
+  { id:"vilochka_rozet", cat:"Мелочь", name:"Штепсельная вилка", price:1, uses:"" },
+  { id:"zamok_navesnoy", cat:"Мелочь", name:"Навесной замок", price:3, uses:"" },
+  { id:"ampula_steklo", cat:"Мелочь", name:"Пустая ампула", price:1, uses:"" },
+  { id:"bint_gryazny", cat:"Мелочь", name:"Использованный бинт", price:1, uses:"" },
+  { id:"probka_rezina", cat:"Мелочь", name:"Резиновая аптечная пробка", price:3, uses:"ОЗК, Химера, Дезертир" },
+  { id:"shprits_stary", cat:"Мелочь", name:"Стеклянный шприц", price:2, uses:"" },
+  { id:"setka_rabitsa", cat:"Мелочь", name:"Клочок сетки-рабицы", price:1, uses:"" },
+  { id:"izolyat_keram", cat:"Мелочь", name:"Керамический изолятор", price:2, uses:"" },
+  { id:"shlak_metall", cat:"Мелочь", name:"Металлический шлак", price:1, uses:"" },
+  { id:"setka_filtr", cat:"Мелочь", name:"Сетка бензонасоса", price:1, uses:"" },
+  { id:"uplotnitel_grm", cat:"Мелочь", name:"Резиновая прокладка", price:2, uses:"" },
 
-  // ========== ИНСТРУМЕНТЫ ==========
-  { id: "klyuch_rozhkovy",       cat: "Инструменты", name: "Рожковый ключ",                  price: 3,  uses: "—" },
-  { id: "otvertka_minus",        cat: "Инструменты", name: "Плоская отвертка",               price: 2,  uses: "—" },
-  { id: "napilnik_krug",         cat: "Инструменты", name: "Круглый напильник",              price: 2,  uses: "—" },
-  { id: "polotno_nozhov",        cat: "Инструменты", name: "Полотно ножовки",                price: 3,  uses: "—" },
-  { id: "ploskogubtsy",          cat: "Инструменты", name: "Ржавые пассатижи",               price: 2,  uses: "—" },
-  { id: "sverlo_metall",         cat: "Инструменты", name: "Сломанное сверло",               price: 2,  uses: "—" },
+  { id:"klyuch_rozhkovy", cat:"Инструменты", name:"Рожковый ключ", price:3, uses:"" },
+  { id:"otvertka_minus", cat:"Инструменты", name:"Плоская отвертка", price:2, uses:"" },
+  { id:"napilnik_krug", cat:"Инструменты", name:"Круглый напильник", price:2, uses:"" },
+  { id:"polotno_nozhov", cat:"Инструменты", name:"Полотно ножовки", price:3, uses:"" },
+  { id:"ploskogubtsy", cat:"Инструменты", name:"Ржавые пассатижи", price:2, uses:"" },
+  { id:"sverlo_metall", cat:"Инструменты", name:"Сломанное сверло", price:2, uses:"" },
 
-  // ========== АВТОМОБИЛЬ ==========
-  { id: "kolenval",              cat: "Автомобиль", name: "Коленвал",                        price: 10, uses: "—" },
-  { id: "raspredval",            cat: "Автомобиль", name: "Распредвал",                      price: 10, uses: "—" },
-  { id: "shchip_maslo",          cat: "Автомобиль", name: "Масляный щуп",                    price: 2,  uses: "—" },
-  { id: "forsunka",              cat: "Автомобиль", name: "Форсунка",                        price: 8,  uses: "—" },
-  { id: "rampa_topl",            cat: "Автомобиль", name: "Топливная рампа",                 price: 10, uses: "—" },
-  { id: "regulyator_dav",        cat: "Автомобиль", name: "Регулятор давления",              price: 6,  uses: "—" },
-  { id: "tros_stsepl",           cat: "Автомобиль", name: "Трос сцепления",                  price: 4,  uses: "—" },
-  { id: "nabaldash_kpp",         cat: "Автомобиль", name: "Ручка КПП",                       price: 3,  uses: "—" },
-  { id: "pnevmosignal",          cat: "Автомобиль", name: "Сигнал",                          price: 5,  uses: "—" },
-  { id: "veslo",                 cat: "Автомобиль", name: "Стеклоподъемник",                 price: 4,  uses: "—" },
-  { id: "shina",                 cat: "Автомобиль", name: "Шина",                            price: 6,  uses: "—" },
-  { id: "spidometr",             cat: "Автомобиль", name: "Спидометр",                       price: 6,  uses: "—" },
-  { id: "glushitel",             cat: "Автомобиль", name: "Глушитель",                       price: 20, uses: "—" },
-  { id: "zaslonka",              cat: "Автомобиль", name: "Дроссель",                        price: 4,  uses: "—" },
-  { id: "ruly",                  cat: "Автомобиль", name: "Руль",                            price: 6,  uses: "—" },
-  { id: "porshen_dv",            cat: "Автомобиль", name: "Поршень",                         price: 10, uses: "—" },
-  { id: "mahovik",               cat: "Автомобиль", name: "Маховик",                         price: 8,  uses: "—" },
-  { id: "reduktor",              cat: "Автомобиль", name: "Редуктор",                        price: 8,  uses: "—" },
-  { id: "kolodka",               cat: "Автомобиль", name: "Тормозная колодка",               price: 4,  uses: "—" },
-  { id: "opora_dv",              cat: "Автомобиль", name: "Опора двигателя",                  price: 4,  uses: "—" },
-  { id: "reika",                 cat: "Автомобиль", name: "Рулевая рейка",                   price: 6,  uses: "—" },
-  { id: "amort",                 cat: "Автомобиль", name: "Амортизатор",                     price: 5,  uses: "—" },
-  { id: "stabilizator",          cat: "Автомобиль", name: "Стабилизатор",                    price: 15, uses: "—" },
-  { id: "fara",                  cat: "Автомобиль", name: "Фара",                            price: 6,  uses: "—" },
+  { id:"kolenval", cat:"Автомобиль", name:"Коленвал", price:10, uses:"" },
+  { id:"raspredval", cat:"Автомобиль", name:"Распредвал", price:10, uses:"" },
+  { id:"shchip_maslo", cat:"Автомобиль", name:"Масляный щуп", price:2, uses:"" },
+  { id:"forsunka", cat:"Автомобиль", name:"Форсунка", price:8, uses:"" },
+  { id:"rampa_topl", cat:"Автомобиль", name:"Топливная рампа", price:10, uses:"" },
+  { id:"regulyator_dav", cat:"Автомобиль", name:"Регулятор давления", price:6, uses:"" },
+  { id:"tros_stsepl", cat:"Автомобиль", name:"Трос сцепления", price:4, uses:"" },
+  { id:"nabaldash_kpp", cat:"Автомобиль", name:"Ручка КПП", price:3, uses:"" },
+  { id:"pnevmosignal", cat:"Автомобиль", name:"Сигнал", price:5, uses:"" },
+  { id:"veslo", cat:"Автомобиль", name:"Стеклоподъемник", price:4, uses:"" },
+  { id:"shina", cat:"Автомобиль", name:"Шина", price:6, uses:"" },
+  { id:"spidometr", cat:"Автомобиль", name:"Спидометр", price:6, uses:"" },
+  { id:"glushitel", cat:"Автомобиль", name:"Глушитель", price:20, uses:"" },
+  { id:"zaslonka", cat:"Автомобиль", name:"Дроссель", price:4, uses:"" },
+  { id:"ruly", cat:"Автомобиль", name:"Руль", price:6, uses:"" },
+  { id:"porshen_dv", cat:"Автомобиль", name:"Поршень", price:10, uses:"" },
+  { id:"mahovik", cat:"Автомобиль", name:"Маховик", price:8, uses:"" },
+  { id:"reduktor", cat:"Автомобиль", name:"Редуктор", price:8, uses:"" },
+  { id:"kolodka", cat:"Автомобиль", name:"Тормозная колодка", price:4, uses:"" },
+  { id:"opora_dv", cat:"Автомобиль", name:"Опора двигателя", price:4, uses:"" },
+  { id:"reika", cat:"Автомобиль", name:"Рулевая рейка", price:6, uses:"" },
+  { id:"amort", cat:"Автомобиль", name:"Амортизатор", price:5, uses:"" },
+  { id:"stabilizator", cat:"Автомобиль", name:"Стабилизатор", price:15, uses:"" },
+  { id:"fara", cat:"Автомобиль", name:"Фара", price:6, uses:"" },
 
-  // ========== БРОНЯ ==========
-  { id: "tkan_kevlar",           cat: "Броня", name: "Кевларовая ткань",                    price: 8,  uses: "Почти все брони" },
-  { id: "bronepaket_aramid",     cat: "Броня", name: "Арамидный мягкий бронепакет",         price: 20, uses: "—" },
-  { id: "kura_brezent",          cat: "Броня", name: "Отрез плотного брезента",             price: 3,  uses: "—" },
-  { id: "kozha_tolstaya",        cat: "Броня", name: "Толстая воловья кожа",                price: 5,  uses: "—" },
-  { id: "nitki_nylon",           cat: "Броня", name: "Нейлоновые нитки",                    price: 4,  uses: "Почти все брони" },
-  { id: "remen_stropa",          cat: "Броня", name: "Нейлоновая стропа",                   price: 3,  uses: "Почти все брони" },
-  { id: "fasteks_zastezhka",     cat: "Броня", name: "Застежка-фастекс",                    price: 2,  uses: "—" },
-  { id: "lipuchka_velcro",       cat: "Броня", name: "Лента-липучка",                       price: 2,  uses: "—" },
-  { id: "podkladka_mesh",        cat: "Броня", name: "Вентилируемая 3D-сетка",              price: 3,  uses: "—" },
-  { id: "molniya_usilennaya",    cat: "Броня", name: "Усиленная тракторная молния",         price: 3,  uses: "—" },
-  { id: "karabin_stal",          cat: "Броня", name: "Стальной карабин",                     price: 4,  uses: "—" },
-  { id: "koltso_d_obrazn",       cat: "Броня", name: "D-образное кольцо",                    price: 3,  uses: "—" },
-  { id: "shnur_parakord",        cat: "Броня", name: "Моток паракорда",                     price: 2,  uses: "—" },
-  { id: "zaklepka_stal",         cat: "Броня", name: "Стальная заклепка",                    price: 3,  uses: "Attacker, Defender, Feldgrau, Krechet, Medical, Sniper" },
-  { id: "amort_vstavka",         cat: "Броня", name: "Демпферная вставка (КАП)",            price: 8,  uses: "Бастион" },
-  { id: "plastina_stal",         cat: "Броня", name: "Стальная бронеплита",                 price: 10, uses: "Защитник" },
-  { id: "plastina_keramika",     cat: "Броня", name: "Керамическая бронеплита",             price: 15, uses: "—" },
-  { id: "plastina_titan",        cat: "Броня", name: "Титановая бронеплита",                price: 25, uses: "Бастион" },
-  { id: "plastina_polietilen",   cat: "Броня", name: "Бронеплита СВМПЭ",                    price: 15, uses: "Тень" },
-  { id: "rebro_zhestkosti",      cat: "Броня", name: "Металлическое ребро жесткости",       price: 4,  uses: "—" },
-  { id: "kolchuga_polotno",      cat: "Броня", name: "Фрагмент стальной кольчуги",          price: 4,  uses: "Cifra, Feldgrau, Himera, Krechet, Priboy, Ratnik, Scout, Ten, Attacker" },
-  { id: "kolchuga_titan",        cat: "Броня", name: "Фрагмент титановой кольчуги",         price: 8,  uses: "Attacker, Bastion, Cifra, Defender, Himera, Krechet, Priboy, Ratnik, Ten" },
-  { id: "kompozit_smola",        cat: "Броня", name: "Банка эпоксидной смолы",              price: 8,  uses: "—" },
-  { id: "steklotkan_rulon",      cat: "Броня", name: "Рулон стеклоткани",                   price: 5,  uses: "—" },
-  { id: "amortizator_eva",       cat: "Броня", name: "Лист ЭВА-пены",                       price: 4,  uses: "—" },
-  { id: "chehol_bronezhilet",    cat: "Броня", name: "Пустой чехол бронежилета",            price: 6,  uses: "Attacker, Himera, Priboy, Ratnik" },
-  { id: "razgruzka_osnova",      cat: "Броня", name: "Основа нагрудника",                   price: 6,  uses: "Cifra" },
-  { id: "poyas_taktich",         cat: "Броня", name: "Бандаж тактического пояса",           price: 4,  uses: "—" },
-  { id: "podsumok_maly",         cat: "Броня", name: "Универсальный малый подсумок",        price: 4,  uses: "Attacker, Krechet, Priboy, Ten" },
-  { id: "zashchita_pah",         cat: "Броня", name: "Паховый модуль",                      price: 6,  uses: "Krechet" },
-  { id: "zashchita_sheya",       cat: "Броня", name: "Кевларовый воротник",                 price: 5,  uses: "—" },
-  { id: "nakladka_plecho",       cat: "Броня", name: "Плечевая накладка",                   price: 5,  uses: "—" },
-  { id: "korset_spina",          cat: "Броня", name: "Разгрузочный корсет",                 price: 7,  uses: "—" },
-  { id: "nakolennik_chashka",    cat: "Броня", name: "Пластиковая чашечка наколенника",     price: 5,  uses: "—" },
-  { id: "nalokotnik_chashka",    cat: "Броня", name: "Пластиковая чашечка налокотника",     price: 5,  uses: "—" },
-  { id: "zashchita_bedro",       cat: "Броня", name: "Набедренная платформа",               price: 5,  uses: "—" },
-  { id: "shitok_predplechye",    cat: "Броня", name: "Бронещиток на предплечье",            price: 7,  uses: "—" },
-  { id: "shitok_golen",          cat: "Броня", name: "Бронещиток на голень",                price: 8,  uses: "Бастион" },
-  { id: "kaska_kupol",           cat: "Броня", name: "Стальной купол шлема",                price: 8,  uses: "—" },
-  { id: "shlem_kevlar_kupol",    cat: "Броня", name: "Кевларовая сфера шлема",             price: 15, uses: "—" },
-  { id: "podves_shlem",          cat: "Броня", name: "Подтулейное устройство",              price: 4,  uses: "—" },
-  { id: "zabralo_polikarbonat",  cat: "Броня", name: "Поликарбонатное забрало",            price: 30, uses: "Бастион" },
-  { id: "kreplenie_pnv",         cat: "Броня", name: "Шрауд (крепление) для ПНВ",           price: 8,  uses: "—" },
-  { id: "pylezashchita_ochki",   cat: "Броня", name: "Тактические очки",                   price: 4,  uses: "—" },
-  { id: "maska_neopren",         cat: "Броня", name: "Неопреновая маска",                   price: 4,  uses: "—" },
-  { id: "perchatki_osnova",      cat: "Броня", name: "Основа тактических перчаток",         price: 5,  uses: "—" },
-  { id: "kastet_vstavka",        cat: "Броня", name: "Карбоновая защита костяшек",          price: 6,  uses: "—" },
-  { id: "podoshva_vibram",       cat: "Броня", name: "Усиленная подошва для берцев",        price: 5,  uses: "—" },
-  { id: "berets_osnova",         cat: "Броня", name: "Кожаная заготовка ботинка",           price: 5,  uses: "—" },
-  { id: "shnurki_kevlar",        cat: "Броня", name: "Кевларовые огнеупорные шнурки",       price: 2,  uses: "—" },
+  { id:"tkan_kevlar", cat:"Броня", name:"Кевларовая ткань", price:8, uses:"Почти все брони" },
+  { id:"bronepaket_aramid", cat:"Броня", name:"Арамидный мягкий бронепакет", price:20, uses:"" },
+  { id:"kura_brezent", cat:"Броня", name:"Отрез плотного брезента", price:3, uses:"" },
+  { id:"kozha_tolstaya", cat:"Броня", name:"Толстая воловья кожа", price:5, uses:"" },
+  { id:"nitki_nylon", cat:"Броня", name:"Нейлоновые нитки", price:4, uses:"Почти все брони" },
+  { id:"remen_stropa", cat:"Броня", name:"Нейлоновая стропа", price:3, uses:"Почти все брони" },
+  { id:"fasteks_zastezhka", cat:"Броня", name:"Застежка-фастекс", price:2, uses:"" },
+  { id:"lipuchka_velcro", cat:"Броня", name:"Лента-липучка", price:2, uses:"" },
+  { id:"podkladka_mesh", cat:"Броня", name:"Вентилируемая 3D-сетка", price:3, uses:"" },
+  { id:"molniya_usilennaya", cat:"Броня", name:"Усиленная тракторная молния", price:3, uses:"" },
+  { id:"karabin_stal", cat:"Броня", name:"Стальной карабин", price:4, uses:"" },
+  { id:"koltso_d_obrazn", cat:"Броня", name:"D-образное кольцо", price:3, uses:"" },
+  { id:"shnur_parakord", cat:"Броня", name:"Моток паракорда", price:2, uses:"" },
+  { id:"zaklepka_stal", cat:"Броня", name:"Стальная заклепка", price:3, uses:"Attacker, Defender, Feldgrau, Krechet, Medical, Sniper" },
+  { id:"amort_vstavka", cat:"Броня", name:"Демпферная вставка (КАП)", price:8, uses:"Бастион" },
+  { id:"plastina_stal", cat:"Броня", name:"Стальная бронеплита", price:10, uses:"Защитник" },
+  { id:"plastina_keramika", cat:"Броня", name:"Керамическая бронеплита", price:15, uses:"" },
+  { id:"plastina_titan", cat:"Броня", name:"Титановая бронеплита", price:25, uses:"Бастион" },
+  { id:"plastina_polietilen", cat:"Броня", name:"Бронеплита СВМПЭ", price:15, uses:"Тень" },
+  { id:"rebro_zhestkosti", cat:"Броня", name:"Металлическое ребро жесткости", price:4, uses:"" },
+  { id:"kolchuga_polotno", cat:"Броня", name:"Фрагмент стальной кольчуги", price:4, uses:"Cifra, Feldgrau, Himera, Krechet, Priboy, Ratnik, Scout, Ten, Attacker" },
+  { id:"kolchuga_titan", cat:"Броня", name:"Фрагмент титановой кольчуги", price:8, uses:"Attacker, Bastion, Cifra, Defender, Himera, Krechet, Priboy, Ratnik, Ten" },
+  { id:"kompozit_smola", cat:"Броня", name:"Банка эпоксидной смолы", price:8, uses:"" },
+  { id:"steklotkan_rulon", cat:"Броня", name:"Рулон стеклоткани", price:5, uses:"" },
+  { id:"amortizator_eva", cat:"Броня", name:"Лист ЭВА-пены", price:4, uses:"" },
+  { id:"chehol_bronezhilet", cat:"Броня", name:"Пустой чехол бронежилета", price:6, uses:"Attacker, Himera, Priboy, Ratnik" },
+  { id:"razgruzka_osnova", cat:"Броня", name:"Основа нагрудника", price:6, uses:"Cifra" },
+  { id:"poyas_taktich", cat:"Броня", name:"Бандаж тактического пояса", price:4, uses:"" },
+  { id:"podsumok_maly", cat:"Броня", name:"Универсальный малый подсумок", price:4, uses:"Attacker, Krechet, Priboy, Ten" },
+  { id:"zashchita_pah", cat:"Броня", name:"Паховый модуль", price:6, uses:"Krechet" },
+  { id:"zashchita_sheya", cat:"Броня", name:"Кевларовый воротник", price:5, uses:"" },
+  { id:"nakladka_plecho", cat:"Броня", name:"Плечевая накладка", price:5, uses:"" },
+  { id:"korset_spina", cat:"Броня", name:"Разгрузочный корсет", price:7, uses:"" },
+  { id:"nakolennik_chashka", cat:"Броня", name:"Пластиковая чашечка наколенника", price:5, uses:"" },
+  { id:"nalokotnik_chashka", cat:"Броня", name:"Пластиковая чашечка налокотника", price:5, uses:"" },
+  { id:"zashchita_bedro", cat:"Броня", name:"Набедренная платформа", price:5, uses:"" },
+  { id:"shitok_predplechye", cat:"Броня", name:"Бронещиток на предплечье", price:7, uses:"" },
+  { id:"shitok_golen", cat:"Броня", name:"Бронещиток на голень", price:8, uses:"Бастион" },
+  { id:"kaska_kupol", cat:"Броня", name:"Стальной купол шлема", price:8, uses:"" },
+  { id:"shlem_kevlar_kupol", cat:"Броня", name:"Кевларовая сфера шлема", price:15, uses:"" },
+  { id:"podves_shlem", cat:"Броня", name:"Подтулейное устройство", price:4, uses:"" },
+  { id:"zabralo_polikarbonat", cat:"Броня", name:"Поликарбонатное забрало", price:30, uses:"Бастион" },
+  { id:"kreplenie_pnv", cat:"Броня", name:"Шрауд (крепление) для ПНВ", price:8, uses:"" },
+  { id:"pylezashchita_ochki", cat:"Броня", name:"Тактические очки", price:4, uses:"" },
+  { id:"maska_neopren", cat:"Броня", name:"Неопреновая маска", price:4, uses:"" },
+  { id:"perchatki_osnova", cat:"Броня", name:"Основа тактических перчаток", price:5, uses:"" },
+  { id:"kastet_vstavka", cat:"Броня", name:"Карбоновая защита костяшек", price:6, uses:"" },
+  { id:"podoshva_vibram", cat:"Броня", name:"Усиленная подошва для берцев", price:5, uses:"" },
+  { id:"berets_osnova", cat:"Броня", name:"Кожаная заготовка ботинка", price:5, uses:"" },
+  { id:"shnurki_kevlar", cat:"Броня", name:"Кевларовые огнеупорные шнурки", price:2, uses:"" },
 ];
 
 /* ============================================================
    2. СОСТОЯНИЕ
    ============================================================ */
-let factionStock = [];
-let playerStocks = [];
+let state = { resources: [], faction: [], players: [] };
 let editMode = false;
-let currentSha = null;
-let dirty = false;
 
 const statusBanner = document.getElementById("statusBanner");
-
 function setStatus(msg, type = "info", autoHide = 0) {
   statusBanner.textContent = msg;
   statusBanner.className = `status-banner show ${type}`;
@@ -436,124 +559,77 @@ function setStatus(msg, type = "info", autoHide = 0) {
 }
 
 /* ============================================================
-   3. ЗАГРУЗКА С GITHUB
+   3. ХРАНИЛИЩЕ
    ============================================================ */
-async function loadFromGitHub() {
-  setStatus("Загрузка данных с GitHub…", "info");
+function loadState() {
   try {
-    const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_PATH}?ref=${GITHUB_BRANCH}`;
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) throw new Error(`GitHub API: ${res.status} ${res.statusText}`);
-    const data = await res.json();
-    currentSha = data.sha;
-    const content = decodeURIComponent(escape(atob(data.content.replace(/\n/g, ""))));
-    const parsed = JSON.parse(content);
-    factionStock = parsed.factionStock || [];
-    playerStocks = parsed.playerStocks || [];
-    setStatus("Данные загружены с GitHub", "success", 2500);
-    dirty = false;
-    updateSaveButton();
-    renderFaction();
-    renderPlayers();
-  } catch (e) {
-    console.error(e);
-    setStatus("Ошибка загрузки: " + e.message, "error");
-    factionStock = [];
-    playerStocks = [
-      { player: "OscarByOsa", role: "Участник фракции", items: [] },
-      { player: "Clanzlo",    role: "Участник фракции", items: [] },
-      { player: "KORBUT",     role: "Участник фракции", items: [] },
-    ];
-    renderFaction();
-    renderPlayers();
-  }
-}
-
-/* ============================================================
-   4. СОХРАНЕНИЕ НА GITHUB
-   ============================================================ */
-function getToken() { return localStorage.getItem(STORAGE_KEY_TOKEN) || ""; }
-function setToken(token) { localStorage.setItem(STORAGE_KEY_TOKEN, token); }
-
-async function saveToGitHub() {
-  const token = getToken();
-  if (!token) { setStatus("Не задан GitHub-токен", "error"); return; }
-  setStatus("Сохранение на GitHub…", "info");
-
-  const content = JSON.stringify({ factionStock, playerStocks }, null, 2);
-  const contentB64 = btoa(unescape(encodeURIComponent(content)));
-
-  const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_PATH}`;
-  const body = {
-    message: `Обновление складов ${new Date().toLocaleString("ru-RU")}`,
-    content: contentB64,
-    branch: GITHUB_BRANCH,
-  };
-  if (currentSha) body.sha = currentSha;
-
-  try {
-    const res = await fetch(url, {
-      method: "PUT",
-      headers: {
-        "Authorization": `Bearer ${token}`,
-        "Accept": "application/vnd.github+json",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || `${res.status} ${res.statusText}`);
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      state.resources = parsed.resources || JSON.parse(JSON.stringify(DEFAULT_RESOURCES));
+      state.faction = parsed.faction || [];
+      state.players = parsed.players || [
+        { player: "OscarByOsa", role: "Участник фракции", items: [] },
+        { player: "Clanzlo",    role: "Участник фракции", items: [] },
+        { player: "KORBUT",     role: "Участник фракции", items: [] },
+      ];
+      return;
     }
-    const data = await res.json();
-    currentSha = data.content.sha;
-    setStatus("✅ Сохранено на GitHub. Страница обновится через ~1 мин.", "success", 6000);
-    dirty = false;
-    updateSaveButton();
-  } catch (e) {
-    console.error(e);
-    setStatus("Ошибка сохранения: " + e.message, "error");
-  }
+  } catch (e) { console.warn("Не удалось загрузить", e); }
+  state.resources = JSON.parse(JSON.stringify(DEFAULT_RESOURCES));
+  state.faction = [];
+  state.players = [
+    { player: "OscarByOsa", role: "Участник фракции", items: [] },
+    { player: "Clanzlo",    role: "Участник фракции", items: [] },
+    { player: "KORBUT",     role: "Участник фракции", items: [] },
+  ];
 }
 
+function saveState() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+  catch (e) { setStatus("Не удалось сохранить: " + e.message, "error"); }
+}
+
+loadState();
+
 /* ============================================================
-   5. УТИЛИТЫ
+   4. УТИЛИТЫ
    ============================================================ */
 function iconPath(id) { return `assets/ittems/textures/item/${id}.png`; }
 function findResource(id) {
-  return RESOURCES.find(r => r.id === id) || { id, name: id, price: 0, uses: "—" };
+  return state.resources.find(r => r.id === id) || { id, name: id, price: 0, cat: "—", uses: "" };
 }
 function pluralGayka(n) {
-  const abs = Math.abs(n) % 100;
-  const last = abs % 10;
+  const abs = Math.abs(n) % 100, last = abs % 10;
   if (abs > 10 && abs < 20) return "гаек";
   if (last === 1) return "гайка";
   if (last >= 2 && last <= 4) return "гайки";
   return "гаек";
 }
-function markDirty() { dirty = true; updateSaveButton(); }
-function updateSaveButton() {
-  const btn = document.getElementById("saveBtn");
-  if (!editMode) { btn.style.display = "none"; return; }
-  btn.style.display = "inline-block";
-  btn.disabled = !dirty;
-  btn.textContent = dirty ? "💾 Сохранить на GitHub *" : "💾 Сохранить на GitHub";
-}
 
 /* ============================================================
-   6. КАТАЛОГ
+   5. РЕНДЕР КАТАЛОГА
    ============================================================ */
 const catalogGrid = document.getElementById("catalogGrid");
 const searchInput = document.getElementById("search");
 const categoryFilter = document.getElementById("categoryFilter");
 const sortBy = document.getElementById("sortBy");
 
+function refreshCategoryOptions() {
+  const cats = [...new Set(state.resources.map(r => r.cat).filter(Boolean))].sort();
+  const cur = categoryFilter.value;
+  categoryFilter.innerHTML = `<option value="">Все категории</option>` +
+    cats.map(c => `<option value="${c}">${c}</option>`).join("");
+  if (cur && cats.includes(cur)) categoryFilter.value = cur;
+}
+
 function renderCatalog() {
+  refreshCategoryOptions();
   const q = searchInput.value.trim().toLowerCase();
   const cat = categoryFilter.value;
-  let list = RESOURCES.filter(item => {
-    const okQ = item.name.toLowerCase().includes(q) || item.id.toLowerCase().includes(q);
-    const okCat = !cat || item.cat === cat;
+  let list = state.resources.filter(r => {
+    const okQ = r.name.toLowerCase().includes(q) || r.id.toLowerCase().includes(q);
+    const okCat = !cat || r.cat === cat;
     return okQ && okCat;
   });
   if (sortBy.value === "priceAsc")  list.sort((a, b) => a.price - b.price);
@@ -561,332 +637,726 @@ function renderCatalog() {
   if (sortBy.value === "name")      list.sort((a, b) => a.name.localeCompare(b.name, "ru"));
 
   catalogGrid.innerHTML = list.map(item => `
-    <div class="card">
+    <div class="card ${editMode ? "edit-mode" : ""}">
+      <div class="actions">
+        <button data-edit="${item.id}" title="Редактировать">✎</button>
+        <button data-del="${item.id}" class="del" title="Удалить">✕</button>
+      </div>
       <img src="${iconPath(item.id)}" alt="${item.name}"
            onerror="this.style.opacity='0.15'; this.src='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2264%22 height=%2264%22><rect width=%2264%22 height=%2264%22 fill=%22%23333%22/><text x=%2232%22 y=%2238%22 font-size=%2210%22 fill=%22%23888%22 text-anchor=%22middle%22>?</text></svg>'">
       <div class="name">${item.name}</div>
+      <div class="cat">${item.cat || ""}</div>
       <div class="price">${item.price} ${pluralGayka(item.price)}</div>
-      <div class="uses">${item.uses || "—"}</div>
+      <div class="uses">${item.uses || ""}</div>
     </div>
   `).join("") || `<div class="empty">Ничего не найдено</div>`;
+
+  if (editMode) {
+    catalogGrid.querySelectorAll("[data-edit]").forEach(b => {
+      b.addEventListener("click", () => openResourceModal(b.dataset.edit));
+    });
+    catalogGrid.querySelectorAll("[data-del]").forEach(b => {
+      b.addEventListener("click", () => {
+        if (confirm(`Удалить ресурс «${findResource(b.dataset.del).name}» из каталога?`)) {
+          state.resources = state.resources.filter(r => r.id !== b.dataset.del);
+          saveState(); renderCatalog(); renderFaction(); renderPlayers();
+        }
+      });
+    });
+  }
 }
 searchInput.addEventListener("input", renderCatalog);
 categoryFilter.addEventListener("change", renderCatalog);
 sortBy.addEventListener("change", renderCatalog);
-renderCatalog();
 
 /* ============================================================
-   7. РЕНДЕР СКЛАДОВ
+   6. РЕНДЕР СКЛАДОВ
    ============================================================ */
-function renderStockTable(items, searchQuery, editable) {
+function renderStockTable(items, searchQuery, editable, kind, ownerIdx) {
   const rows = items
     .map(it => {
       const res = findResource(it.id);
-      return { ...it, name: res.name, price: res.price };
+      return { ...it, name: res.name, price: res.price, cat: res.cat };
     })
     .filter(it => !searchQuery
       || it.name.toLowerCase().includes(searchQuery)
       || it.id.toLowerCase().includes(searchQuery));
 
-  if (rows.length === 0 && !editable) return `<div class="empty-stock">Склад пуст</div>`;
   const total = rows.reduce((s, it) => s + it.qty * it.price, 0);
+  if (rows.length === 0 && !editable) {
+    return `<div class="empty-stock">Склад пуст</div>
+            <div class="stock-total">Итого: 0 гаек</div>`;
+  }
 
   return `
     <table>
       <thead>
         <tr>
-          <th>Ресурс</th><th>Цена / шт.</th><th>Количество</th><th>Стоимость</th>
+          <th>Ресурс</th><th>Категория</th><th>Цена / шт.</th>
+          <th>Количество</th><th>Стоимость</th>
           ${editable ? "<th></th>" : ""}
         </tr>
       </thead>
       <tbody>
         ${rows.length === 0
-          ? `<tr><td colspan="${editable ? 5 : 4}" class="empty-stock">Склад пуст</td></tr>`
+          ? `<tr><td colspan="${editable ? 6 : 5}" class="empty-stock">Склад пуст</td></tr>`
           : rows.map(it => `
-            <tr>
-              <td>${it.name}</td>
-              <td class="price">${it.price} ${pluralGayka(it.price)}</td>
-              <td class="qty">
-                ${editable
-                  ? `<input type="number" min="0" class="edit-input" value="${it.qty}" data-id="${it.id}">`
-                  : `${it.qty} шт.`}
-              </td>
-              <td>${it.qty * it.price} ${pluralGayka(it.qty * it.price)}</td>
-              ${editable ? `<td><button class="btn btn-danger" data-remove="${it.id}">✕</button></td>` : ""}
-            </tr>
-          `).join("")}
+                <tr>
+                  <td>${it.name}</td>
+                  <td>${it.cat || "—"}</td>
+                  <td class="price">${it.price} ${pluralGayka(it.price)}</td>
+                  <td class="qty">
+                    ${editable
+                      ? `<input type="number" min="0" class="edit-input" value="${it.qty}" data-id="${it.id}" data-kind="${kind}" data-owner="${ownerIdx}">`
+                      : `${it.qty} шт.`}
+                  </td>
+                  <td class="total">${it.qty * it.price} ${pluralGayka(it.qty * it.price)}</td>
+                  ${editable
+                    ? `<td><button class="btn btn-danger" data-remove="${it.id}" data-kind="${kind}" data-owner="${ownerIdx}">✕</button></td>`
+                    : ""}
+                </tr>
+              `).join("")}
       </tbody>
     </table>
-    <div class="stock-total">Итого по складу: ${total} ${pluralGayka(total)}</div>
+    <div class="stock-total">Итого: ${total} ${pluralGayka(total)}</div>
   `;
 }
 
-function renderAddBar(targetKey) {
+function renderAddBar(kind, ownerIdx, ownerLabel) {
   if (!editMode) return "";
   return `
     <div class="edit-toolbar">
-      <select id="addSelect_${targetKey}">
-        <option value="">— Выберите ресурс —</option>
-        ${RESOURCES.map(r => `<option value="${r.id}">${r.name}</option>`).join("")}
+      <select id="addSelect_${kind}_${ownerIdx}">
+        <option value="">— Выберите ресурс для «${ownerLabel}» —</option>
+        ${state.resources.map(r => `<option value="${r.id}">${r.name} (${r.price} г.)</option>`).join("")}
       </select>
-      <input id="addQty_${targetKey}" type="number" min="1" value="1">
-      <button class="btn btn-add" data-add="${targetKey}">+ Добавить</button>
-      <button class="btn" data-reset="${targetKey}">Сбросить склад</button>
+      <input id="addQty_${kind}_${ownerIdx}" type="number" min="1" value="1">
+      <button class="btn btn-good" data-add="${kind}" data-owner="${ownerIdx}">+ Добавить</button>
+      <button class="btn" data-clear="${kind}" data-owner="${ownerIdx}">Очистить склад</button>
     </div>
   `;
 }
 
-// --- Фракция ---
 const factionWrap = document.getElementById("factionWrap");
 const factionEditBar = document.getElementById("factionEditBar");
 const searchFaction = document.getElementById("searchFaction");
 
 function renderFaction() {
-  factionEditBar.innerHTML = renderAddBar("faction");
+  factionEditBar.innerHTML = renderAddBar("faction", 0, "Склад фракции");
   factionWrap.innerHTML = renderStockTable(
-    factionStock,
+    state.faction,
     searchFaction.value.trim().toLowerCase(),
-    editMode
+    editMode, "faction", 0
   );
-  if (editMode) bindFactionEvents();
+  if (editMode) bindStockEvents("faction", 0);
 }
 
-function bindFactionEvents() {
-  factionWrap.querySelectorAll(".edit-input").forEach(inp => {
-    inp.addEventListener("change", () => {
-      const id = inp.dataset.id;
-      let val = parseInt(inp.value, 10);
-      if (isNaN(val) || val < 0) val = 0;
-      inp.value = val;
-      const item = factionStock.find(i => i.id === id);
-      if (item) { item.qty = val; markDirty(); renderFaction(); }
-    });
-  });
-  factionWrap.querySelectorAll("[data-remove]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      factionStock = factionStock.filter(i => i.id !== btn.dataset.remove);
-      markDirty(); renderFaction();
-    });
-  });
-  const addBtn = factionEditBar.querySelector('[data-add="faction"]');
-  if (addBtn) addBtn.addEventListener("click", () => {
-    const sel = document.getElementById("addSelect_faction");
-    const qty = document.getElementById("addQty_faction");
-    const id = sel.value;
-    const count = parseInt(qty.value, 10);
-    if (!id || !count || count <= 0) return;
-    const existing = factionStock.find(i => i.id === id);
-    if (existing) existing.qty += count;
-    else factionStock.push({ id, qty: count });
-    markDirty(); renderFaction();
-  });
-  const resetBtn = factionEditBar.querySelector('[data-reset="faction"]');
-  if (resetBtn) resetBtn.addEventListener("click", () => {
-    if (confirm("Сбросить склад фракции?")) {
-      factionStock.length = 0;
-      markDirty(); renderFaction();
-    }
-  });
-}
-
-searchFaction.addEventListener("input", renderFaction);
-renderFaction();
-
-// --- Игроки ---
 const playersWrap = document.getElementById("playersWrap");
-const playersEditBar = document.getElementById("playersEditBar");
 const searchPlayers = document.getElementById("searchPlayers");
 
 function renderPlayers() {
-  playersEditBar.innerHTML = editMode
-    ? `<div class="edit-toolbar"><span style="color:var(--muted);font-size:.9rem;">Редактируйте количество и добавляйте предметы в блоках игроков ниже.</span></div>`
-    : "";
   const q = searchPlayers.value.trim().toLowerCase();
   let html = "";
-  playerStocks.forEach((stock, idx) => {
-    if (q && !stock.items.length && !stock.player.toLowerCase().includes(q)) return;
+  state.players.forEach((p, idx) => {
+    if (q && !p.items.length && !p.player.toLowerCase().includes(q)) return;
     html += `
-      <h3 style="margin:24px 0 8px;font-size:1.1rem;">
-        ${stock.player} <span class="badge">${stock.role}</span>
-      </h3>
-      ${editMode ? renderAddBar("player_" + idx) : ""}
-      ${renderStockTable(stock.items, q, editMode)}
+      <div class="stock-block" data-player-idx="${idx}">
+        <div class="stock-header">
+          <h3>${p.player} <span class="badge">${p.role}</span></h3>
+          ${editMode ? `<button class="btn btn-danger" data-del-player="${idx}">Удалить игрока</button>` : ""}
+        </div>
+        ${renderAddBar("player", idx, p.player)}
+        ${renderStockTable(p.items, q, editMode, "player", idx)}
+      </div>
     `;
   });
   playersWrap.innerHTML = html || `<div class="empty">Ничего не найдено</div>`;
-
   if (editMode) {
-    const tables = playersWrap.querySelectorAll("table");
-    let ti = 0;
-    playerStocks.forEach((stock, idx) => {
-      if (q && !stock.items.length && !stock.player.toLowerCase().includes(q)) return;
-      const table = tables[ti++];
-      if (!table) return;
-      table.querySelectorAll(".edit-input").forEach(inp => {
-        inp.addEventListener("change", () => {
-          const id = inp.dataset.id;
-          let val = parseInt(inp.value, 10);
-          if (isNaN(val) || val < 0) val = 0;
-          inp.value = val;
-          const item = stock.items.find(i => i.id === id);
-          if (item) { item.qty = val; markDirty(); renderPlayers(); }
-        });
-      });
-      table.querySelectorAll("[data-remove]").forEach(btn => {
-        btn.addEventListener("click", () => {
-          stock.items = stock.items.filter(i => i.id !== btn.dataset.remove);
-          markDirty(); renderPlayers();
-        });
-      });
-      const addBtn = playersWrap.querySelector(`[data-add="player_${idx}"]`);
-      if (addBtn) addBtn.addEventListener("click", () => {
-        const sel = document.getElementById(`addSelect_player_${idx}`);
-        const qty = document.getElementById(`addQty_player_${idx}`);
-        const id = sel.value;
-        const count = parseInt(qty.value, 10);
-        if (!id || !count || count <= 0) return;
-        const existing = stock.items.find(i => i.id === id);
-        if (existing) existing.qty += count;
-        else stock.items.push({ id, qty: count });
-        markDirty(); renderPlayers();
-      });
-      const resetBtn = playersWrap.querySelector(`[data-reset="player_${idx}"]`);
-      if (resetBtn) resetBtn.addEventListener("click", () => {
-        if (confirm(`Сбросить склад игрока ${stock.player}?`)) {
-          stock.items = [];
-          markDirty(); renderPlayers();
+    state.players.forEach((p, idx) => {
+      if (q && !p.items.length && !p.player.toLowerCase().includes(q)) return;
+      bindStockEvents("player", idx);
+    });
+    playersWrap.querySelectorAll("[data-del-player]").forEach(b => {
+      b.addEventListener("click", () => {
+        const i = parseInt(b.dataset.delPlayer, 10);
+        if (confirm(`Удалить игрока ${state.players[i].player}?`)) {
+          state.players.splice(i, 1);
+          saveState(); renderPlayers();
         }
       });
     });
   }
 }
 
+function bindStockEvents(kind, ownerIdx) {
+  let wrapEl, editBar;
+  if (kind === "faction") {
+    wrapEl = factionWrap; editBar = factionEditBar;
+  } else {
+    const block = playersWrap.querySelector(`[data-player-idx="${ownerIdx}"]`);
+    if (!block) return;
+    wrapEl = block;
+    editBar = block.querySelector(".edit-toolbar");
+  }
+  if (!wrapEl) return;
+
+  wrapEl.querySelectorAll(".edit-input").forEach(inp => {
+    inp.addEventListener("change", () => {
+      const id = inp.dataset.id;
+      let val = parseInt(inp.value, 10);
+      if (isNaN(val) || val < 0) val = 0;
+      inp.value = val;
+      const items = kind === "faction" ? state.faction : state.players[ownerIdx].items;
+      const item = items.find(i => i.id === id);
+      if (item) { item.qty = val; saveState(); kind === "faction" ? renderFaction() : renderPlayers(); }
+    });
+  });
+
+  wrapEl.querySelectorAll("[data-remove]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.remove;
+      if (kind === "faction") state.faction = state.faction.filter(i => i.id !== id);
+      else state.players[ownerIdx].items = state.players[ownerIdx].items.filter(i => i.id !== id);
+      saveState(); kind === "faction" ? renderFaction() : renderPlayers();
+    });
+  });
+
+  if (editBar) {
+    const addBtn = editBar.querySelector("[data-add]");
+    if (addBtn) addBtn.addEventListener("click", () => {
+      const sel = editBar.querySelector("select");
+      const qty = editBar.querySelector('input[type="number"]');
+      const id = sel.value;
+      const count = parseInt(qty.value, 10);
+      if (!id || !count || count <= 0) return;
+      const items = kind === "faction" ? state.faction : state.players[ownerIdx].items;
+      const existing = items.find(i => i.id === id);
+      if (existing) existing.qty += count;
+      else items.push({ id, qty: count });
+      saveState(); kind === "faction" ? renderFaction() : renderPlayers();
+    });
+
+    const clearBtn = editBar.querySelector("[data-clear]");
+    if (clearBtn) clearBtn.addEventListener("click", () => {
+      if (!confirm("Очистить склад?")) return;
+      if (kind === "faction") state.faction.length = 0;
+      else state.players[ownerIdx].items = [];
+      saveState(); kind === "faction" ? renderFaction() : renderPlayers();
+    });
+  }
+}
+
+searchFaction.addEventListener("input", renderFaction);
 searchPlayers.addEventListener("input", renderPlayers);
-renderPlayers();
 
 /* ============================================================
-   8. РЕЖИМ РЕДАКТИРОВАНИЯ
+   7. МОДАЛЬНОЕ ОКНО РЕСУРСА
+   ============================================================ */
+function openResourceModal(editId = null) {
+  const isEdit = editId !== null;
+  const r = isEdit ? findResource(editId) : { id: "", name: "", price: 1, cat: "", uses: "" };
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="modal">
+      <h2>${isEdit ? "Редактировать ресурс" : "Новый ресурс"}</h2>
+      <label>ID (имя файла иконки)</label>
+      <input id="rId" type="text" value="${r.id}" ${isEdit ? "disabled" : ""} placeholder="например stvol_vintovka">
+      <label>Название</label>
+      <input id="rName" type="text" value="${r.name}" placeholder="Винтовочный ствол">
+      <label>Цена за 1 шт. (гайки)</label>
+      <input id="rPrice" type="number" min="0" step="1" value="${r.price}">
+      <label>Категория</label>
+      <input id="rCat" type="text" value="${r.cat}" placeholder="Оружие / Патроны / Броня / ...">
+      <label>Подсказка (где используется)</label>
+      <input id="rUses" type="text" value="${r.uses}" placeholder="необязательно">
+      <div class="modal-error" id="mErr"></div>
+      <div class="modal-buttons">
+        <button class="btn" id="mCancel">Отмена</button>
+        <button class="btn btn-good" id="mSave">Сохранить</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+  const close = () => document.body.removeChild(backdrop);
+  backdrop.querySelector("#mCancel").addEventListener("click", close);
+  backdrop.querySelector("#mSave").addEventListener("click", () => {
+    const id = backdrop.querySelector("#rId").value.trim();
+    const name = backdrop.querySelector("#rName").value.trim();
+    const price = parseInt(backdrop.querySelector("#rPrice").value, 10);
+    const cat = backdrop.querySelector("#rCat").value.trim();
+    const uses = backdrop.querySelector("#rUses").value.trim();
+    const err = backdrop.querySelector("#mErr");
+    if (!id) { err.textContent = "ID обязателен"; return; }
+    if (!name) { err.textContent = "Название обязательно"; return; }
+    if (isNaN(price) || price < 0) { err.textContent = "Цена должна быть числом ≥ 0"; return; }
+    if (!isEdit && state.resources.some(x => x.id === id)) {
+      err.textContent = "Ресурс с таким ID уже существует"; return;
+    }
+    if (isEdit) {
+      const existing = state.resources.find(x => x.id === editId);
+      if (existing) { existing.name = name; existing.price = price; existing.cat = cat; existing.uses = uses; }
+    } else {
+      state.resources.push({ id, name, price, cat, uses });
+    }
+    saveState(); close(); renderCatalog(); renderFaction(); renderPlayers();
+  });
+  backdrop.querySelector("#rId").focus();
+}
+
+/* ============================================================
+   8. МОДАЛЬНОЕ ОКНО ИГРОКА
+   ============================================================ */
+function openPlayerModal() {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="modal">
+      <h2>Новый игрок</h2>
+      <label>Ник</label>
+      <input id="pNick" type="text" placeholder="например Ivan_Torg">
+      <label>Роль</label>
+      <input id="pRole" type="text" value="Участник фракции">
+      <div class="modal-error" id="mErr"></div>
+      <div class="modal-buttons">
+        <button class="btn" id="mCancel">Отмена</button>
+        <button class="btn btn-good" id="mSave">Создать</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+  const close = () => document.body.removeChild(backdrop);
+  backdrop.querySelector("#mCancel").addEventListener("click", close);
+  backdrop.querySelector("#mSave").addEventListener("click", () => {
+    const nick = backdrop.querySelector("#pNick").value.trim();
+    const role = backdrop.querySelector("#pRole").value.trim() || "Участник фракции";
+    if (!nick) { backdrop.querySelector("#mErr").textContent = "Введите ник"; return; }
+    if (state.players.some(p => p.player === nick)) {
+      backdrop.querySelector("#mErr").textContent = "Игрок уже есть"; return;
+    }
+    state.players.push({ player: nick, role, items: [] });
+    saveState(); close(); renderPlayers();
+  });
+  backdrop.querySelector("#pNick").focus();
+}
+
+/* ============================================================
+   9. ПАРОЛЬ / РЕЖИМ РЕДАКТИРОВАНИЯ
    ============================================================ */
 const editToggle = document.getElementById("editToggle");
-const saveBtn = document.getElementById("saveBtn");
+const addResourceBtn = document.getElementById("addResourceBtn");
+const addPlayerBtn = document.getElementById("addPlayerBtn");
 
 function setEditMode(on) {
   editMode = on;
-  if (on) {
-    editToggle.classList.add("active");
-    editToggle.textContent = "🔓 Режим редактирования (вкл)";
-  } else {
-    editToggle.classList.remove("active");
-    editToggle.textContent = "🔒 Режим редактирования";
-  }
-  updateSaveButton();
-  renderFaction();
-  renderPlayers();
+  editToggle.classList.toggle("active", on);
+  editToggle.textContent = on ? "🔓 Режим редактирования (вкл)" : "🔒 Режим редактирования";
+  addResourceBtn.style.display = on ? "inline-block" : "none";
+  addPlayerBtn.style.display = on ? "inline-block" : "none";
+  renderCatalog(); renderFaction(); renderPlayers();
 }
 
 editToggle.addEventListener("click", () => {
   if (editMode) { setEditMode(false); return; }
-  showPasswordModal();
-});
-
-saveBtn.addEventListener("click", saveToGitHub);
-
-/* ============================================================
-   9. МОДАЛЬНЫЕ ОКНА
-   ============================================================ */
-function showPasswordModal() {
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop";
   backdrop.innerHTML = `
     <div class="modal">
       <h2>Вход в режим редактирования</h2>
-      <div class="modal-error" id="modalError"></div>
-      <input type="password" id="pwdInput" placeholder="Введите пароль" autofocus>
+      <div class="modal-error" id="mErr"></div>
+      <input type="password" id="pwd" placeholder="Пароль" autofocus>
       <div class="modal-buttons">
-        <button class="btn" id="pwdCancel">Отмена</button>
-        <button class="btn btn-add" id="pwdOk">Войти</button>
+        <button class="btn" id="mCancel">Отмена</button>
+        <button class="btn btn-good" id="mOk">Войти</button>
       </div>
     </div>
   `;
   document.body.appendChild(backdrop);
-  const input = backdrop.querySelector("#pwdInput");
-  const error = backdrop.querySelector("#modalError");
-  const okBtn = backdrop.querySelector("#pwdOk");
-  const cancelBtn = backdrop.querySelector("#pwdCancel");
-  function tryLogin() {
-    if (input.value === EDIT_PASSWORD) {
-      document.body.removeChild(backdrop);
-      if (!getToken()) showTokenModal();
-      else setEditMode(true);
+  const close = () => document.body.removeChild(backdrop);
+  const tryLogin = () => {
+    if (backdrop.querySelector("#pwd").value === EDIT_PASSWORD) {
+      close(); setEditMode(true);
     } else {
-      error.textContent = "Неверный пароль";
-      input.value = "";
-      input.focus();
+      backdrop.querySelector("#mErr").textContent = "Неверный пароль";
+      backdrop.querySelector("#pwd").value = "";
     }
-  }
-  okBtn.addEventListener("click", tryLogin);
-  cancelBtn.addEventListener("click", () => document.body.removeChild(backdrop));
-  input.addEventListener("keydown", e => {
+  };
+  backdrop.querySelector("#mCancel").addEventListener("click", close);
+  backdrop.querySelector("#mOk").addEventListener("click", tryLogin);
+  backdrop.querySelector("#pwd").addEventListener("keydown", e => {
     if (e.key === "Enter") tryLogin();
-    if (e.key === "Escape") document.body.removeChild(backdrop);
+    if (e.key === "Escape") close();
   });
-  input.focus();
-}
+});
 
-function showTokenModal() {
-  const backdrop = document.createElement("div");
-  backdrop.className = "modal-backdrop";
-  backdrop.innerHTML = `
-    <div class="modal">
-      <h2>GitHub Personal Access Token</h2>
-      <p>Нужен для сохранения изменений в репозитории. Создайте токен с правом <code>repo</code> (classic) или <code>Contents: Read and write</code> (fine-grained). Токен хранится только в этом браузере.</p>
-      <div class="modal-error" id="modalError"></div>
-      <input type="password" id="tokenInput" placeholder="ghp_..." autofocus>
-      <div class="modal-buttons">
-        <button class="btn" id="tokenCancel">Отмена</button>
-        <button class="btn btn-add" id="tokenOk">Сохранить</button>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(backdrop);
-  const input = backdrop.querySelector("#tokenInput");
-  const error = backdrop.querySelector("#modalError");
-  const okBtn = backdrop.querySelector("#tokenOk");
-  const cancelBtn = backdrop.querySelector("#tokenCancel");
-  okBtn.addEventListener("click", () => {
-    const t = input.value.trim();
-    if (!t.startsWith("ghp_") && !t.startsWith("github_pat_")) {
-      error.textContent = "Токен должен начинаться с ghp_ или github_pat_";
-      return;
-    }
-    setToken(t);
-    document.body.removeChild(backdrop);
-    setEditMode(true);
-    setStatus("Токен сохранён в браузере", "success", 3000);
-  });
-  cancelBtn.addEventListener("click", () => document.body.removeChild(backdrop));
-  input.addEventListener("keydown", e => { if (e.key === "Escape") document.body.removeChild(backdrop); });
-  input.focus();
-}
+addResourceBtn.addEventListener("click", () => openResourceModal());
+addPlayerBtn.addEventListener("click", () => openPlayerModal());
 
 /* ============================================================
-   10. ТАБЫ
+   10. ИМПОРТ/ЭКСПОРТ JSON
+   ============================================================ */
+document.getElementById("exportJsonBtn").addEventListener("click", () => {
+  const data = JSON.stringify(state, null, 2);
+  const blob = new Blob([data], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `koop-backup-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  setStatus("JSON-резервная копия скачана", "success", 3000);
+});
+
+document.getElementById("importBtn").addEventListener("click", () => {
+  const input = document.createElement("input");
+  input.type = "file"; input.accept = ".json";
+  input.addEventListener("change", () => {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const parsed = JSON.parse(e.target.result);
+        if (!parsed.resources || !parsed.faction || !parsed.players) {
+          throw new Error("Неверный формат файла");
+        }
+        if (!confirm("Заменить текущие данные импортированными?")) return;
+        state = parsed;
+        saveState(); renderCatalog(); renderFaction(); renderPlayers();
+        setStatus("Импорт выполнен", "success", 3000);
+      } catch (err) {
+        setStatus("Ошибка импорта: " + err.message, "error");
+      }
+    };
+    reader.readAsText(file);
+  });
+  input.click();
+});
+
+/* ============================================================
+   11. ЭКСПОРТ КАТАЛОГА В PDF (с иконками, по категориям)
+   ============================================================ */
+document.getElementById("exportCatalogPdf").addEventListener("click", async () => {
+  const btn = document.getElementById("exportCatalogPdf");
+  btn.disabled = true; btn.textContent = "⏳ Генерация…";
+  try {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: "p", unit: "mm", format: "a4" });
+    const fontOk = await loadCyrillicFont(doc);
+    if (!fontOk) { setStatus("Не удалось загрузить шрифт для PDF", "error"); return; }
+    doc.setFont("Roboto");
+
+    // Подгружаем иконки заранее
+    setStatus("Загрузка иконок…", "info");
+    await preloadIcons(state.resources.map(r => r.id));
+    setStatus("Генерация PDF…", "info");
+
+    const ICON_SIZE = 6;          // мм
+    const ROW_HEIGHT = 8;         // мм (высота строки таблицы)
+
+    doc.setFontSize(16);
+    doc.text("Кооператив — Каталог ресурсов", 14, 18);
+    doc.setFontSize(9);
+    doc.setTextColor(120);
+    doc.text(`Сгенерировано: ${new Date().toLocaleString("ru-RU")}`, 14, 24);
+    doc.setTextColor(0);
+
+    let cursorY = 32;
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const pageWidth = doc.internal.pageSize.getWidth();
+
+    // Группировка по категориям
+    const byCat = {};
+    state.resources.forEach(r => {
+      const c = r.cat || "Без категории";
+      if (!byCat[c]) byCat[c] = [];
+      byCat[c].push(r);
+    });
+    const cats = Object.keys(byCat).sort((a, b) => a.localeCompare(b, "ru"));
+
+    // Заголовки и строки
+    const head = [["", "Ресурс", "Цена, гайки", "Используется в"]];
+    const colWidths = { 0: 10, 1: 80, 2: 30, 3: "auto" };
+
+    for (let ci = 0; ci < cats.length; ci++) {
+      const cat = cats[ci];
+      const items = byCat[cat].sort((a, b) => a.name.localeCompare(b.name, "ru"));
+
+      // Проверим, поместится ли заголовок категории + хотя бы одна строка
+      if (cursorY + 18 > pageHeight - 15) {
+        doc.addPage();
+        cursorY = 20;
+      }
+
+      // Заголовок категории
+      doc.setFontSize(12);
+      doc.setTextColor(212, 160, 23);
+      doc.text(`▸ ${cat}`, 14, cursorY);
+      doc.setTextColor(0);
+      cursorY += 4;
+
+      // Таблица без иконок, чтобы получить координаты строк
+      const tableStartY = cursorY;
+      doc.autoTable({
+        startY: tableStartY,
+        head: head,
+        body: items.map(r => ["", r.name, `${r.price}`, r.uses || "—"]),
+        styles: { font: "Roboto", fontSize: 8, cellPadding: 1.5, minCellHeight: ROW_HEIGHT },
+        headStyles: { font: "Roboto", fillColor: [212, 160, 23], textColor: 20, fontStyle: "bold" },
+        alternateRowStyles: { fillColor: [245, 245, 245] },
+        columnStyles: {
+          0: { cellWidth: 10, halign: "center" },
+          1: { cellWidth: 80 },
+          2: { cellWidth: 30, halign: "right" },
+          3: { cellWidth: "auto" },
+        },
+        margin: { left: 14, right: 14 },
+        didDrawCell: (data) => {
+          // Вставляем иконку в 0-ю колонку (после отрисовки ячейки)
+          if (data.section === "body" && data.column.index === 0) {
+            const resource = items[data.row.index];
+            const dataUrl = ICON_CACHE[resource.id];
+            if (dataUrl) {
+              const x = data.cell.x + (data.cell.width - ICON_SIZE) / 2;
+              const y = data.cell.y + (data.cell.height - ICON_SIZE) / 2;
+              try {
+                doc.addImage(dataUrl, "PNG", x, y, ICON_SIZE, ICON_SIZE);
+              } catch (e) { /* пропускаем битую картинку */ }
+            }
+          }
+        },
+        didDrawPage: (data) => {
+          doc.setFont("Roboto");
+          doc.setFontSize(8);
+          doc.setTextColor(120);
+          doc.text(
+            `Страница ${data.pageNumber}`,
+            pageWidth - 20,
+            pageHeight - 8
+          );
+          doc.setTextColor(0);
+        }
+      });
+
+      cursorY = doc.lastAutoTable.finalY + 6;
+    }
+
+    doc.save(`koop-catalog-${new Date().toISOString().slice(0,10)}.pdf`);
+    setStatus("PDF-каталог сгенерирован", "success", 3000);
+  } catch (e) {
+    console.error(e);
+    setStatus("Ошибка генерации PDF: " + e.message, "error");
+  } finally {
+    btn.disabled = false; btn.textContent = "📄 PDF";
+  }
+});
+
+/* ============================================================
+   12. ЭКСПОРТ КАТАЛОГА В EXCEL
+   ============================================================ */
+document.getElementById("exportCatalogXlsx").addEventListener("click", () => {
+  const sorted = [...state.resources].sort((a, b) => a.name.localeCompare(b.name, "ru"));
+  const data = [
+    ["#", "ID", "Название", "Категория", "Цена за 1 шт. (гайки)", "Используется в"],
+    ...sorted.map((r, i) => [i + 1, r.id, r.name, r.cat || "—", r.price, r.uses || ""])
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws["!cols"] = [
+    { wch: 5 }, { wch: 22 }, { wch: 35 }, { wch: 16 }, { wch: 20 }, { wch: 40 }
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Каталог");
+  XLSX.writeFile(wb, `koop-catalog-${new Date().toISOString().slice(0,10)}.xlsx`);
+  setStatus("Excel-каталог сгенерирован", "success", 3000);
+});
+
+/* ============================================================
+   13. ЭКСПОРТ СКЛАДОВ В PDF (иконки, по блокам)
+   ============================================================ */
+async function exportStocksPdf() {
+  const btn1 = document.getElementById("exportStocksPdf");
+  const btn2 = document.getElementById("exportStocksPdf2");
+  btn1.disabled = btn2.disabled = true;
+  btn1.textContent = btn2.textContent = "⏳ Генерация…";
+  try {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: "p", unit: "mm", format: "a4" });
+    const fontOk = await loadCyrillicFont(doc);
+    if (!fontOk) { setStatus("Не удалось загрузить шрифт для PDF", "error"); return; }
+    doc.setFont("Roboto");
+
+    // Предзагрузка всех нужных иконок
+    setStatus("Загрузка иконок…", "info");
+    const allIds = new Set();
+    state.faction.forEach(it => allIds.add(it.id));
+    state.players.forEach(p => p.items.forEach(it => allIds.add(it.id)));
+    await preloadIcons([...allIds]);
+    setStatus("Генерация PDF…", "info");
+
+    const ICON_SIZE = 5;    // мм
+    const ROW_HEIGHT = 7;   // мм
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const pageWidth = doc.internal.pageSize.getWidth();
+
+    let y = 18;
+    doc.setFontSize(16);
+    doc.text("Кооператив — Склады", 14, y);
+    y += 6;
+    doc.setFontSize(9);
+    doc.setTextColor(120);
+    doc.text(`Сгенерировано: ${new Date().toLocaleString("ru-RU")}`, 14, y);
+    doc.setTextColor(0);
+    y += 8;
+
+    function drawStockBlock(title, items, startY) {
+      // Иконки в таблице, сортировка по категории/названию
+      const sorted = [...items].sort((a, b) => {
+        const ra = findResource(a.id), rb = findResource(b.id);
+        const ca = (ra.cat || "—"), cb = (rb.cat || "—");
+        if (ca !== cb) return ca.localeCompare(cb, "ru");
+        return ra.name.localeCompare(rb.name, "ru");
+      });
+
+      const total = sorted.reduce((s, it) => {
+        const r = findResource(it.id); return s + it.qty * r.price;
+      }, 0);
+
+      doc.setFont("Roboto");
+      doc.setFontSize(12);
+      doc.setTextColor(212, 160, 23);
+      doc.text(title, 14, startY);
+      doc.setTextColor(0);
+
+      if (sorted.length === 0) {
+        doc.setFontSize(9);
+        doc.setTextColor(150);
+        doc.text("Склад пуст", 18, startY + 6);
+        doc.setTextColor(0);
+        return startY + 14;
+      }
+
+      const body = sorted.map(it => {
+        const r = findResource(it.id);
+        return ["", r.name, r.cat || "—", `${r.price}`, `${it.qty}`, `${it.qty * r.price}`];
+      });
+
+      doc.autoTable({
+        startY: startY + 4,
+        head: [["", "Ресурс", "Категория", "Цена", "Кол-во", "Стоимость"]],
+        body: body,
+        foot: [["", "Итого", "", "", "", `${total} г.`]],
+        styles: { font: "Roboto", fontSize: 8, cellPadding: 1.3, minCellHeight: ROW_HEIGHT },
+        headStyles: { font: "Roboto", fillColor: [212, 160, 23], textColor: 20, fontStyle: "bold" },
+        footStyles: { font: "Roboto", fillColor: [36, 36, 36], textColor: [240, 192, 64], fontStyle: "bold" },
+        alternateRowStyles: { fillColor: [245, 245, 245] },
+        columnStyles: {
+          0: { cellWidth: 8, halign: "center" },
+          1: { cellWidth: 65 },
+          2: { cellWidth: 32 },
+          3: { cellWidth: 20, halign: "right" },
+          4: { cellWidth: 20, halign: "right" },
+          5: { cellWidth: "auto", halign: "right" },
+        },
+        margin: { left: 14, right: 14 },
+        didDrawCell: (data) => {
+          if (data.section === "body" && data.column.index === 0) {
+            const resource = findResource(sorted[data.row.index].id);
+            const dataUrl = ICON_CACHE[resource.id];
+            if (dataUrl) {
+              const x = data.cell.x + (data.cell.width - ICON_SIZE) / 2;
+              const y2 = data.cell.y + (data.cell.height - ICON_SIZE) / 2;
+              try {
+                doc.addImage(dataUrl, "PNG", x, y2, ICON_SIZE, ICON_SIZE);
+              } catch (e) {}
+            }
+          }
+        },
+        didDrawPage: (data) => {
+          doc.setFont("Roboto");
+          doc.setFontSize(8);
+          doc.setTextColor(120);
+          doc.text(`Страница ${data.pageNumber}`, pageWidth - 20, pageHeight - 8);
+          doc.setTextColor(0);
+        }
+      });
+
+      return doc.lastAutoTable.finalY + 8;
+    }
+
+    y = drawStockBlock("Склад фракции", state.faction, y);
+    state.players.forEach(p => {
+      if (y > 240) { doc.addPage(); y = 20; }
+      y = drawStockBlock(`Склад: ${p.player} (${p.role})`, p.items, y);
+    });
+
+    doc.save(`koop-stocks-${new Date().toISOString().slice(0,10)}.pdf`);
+    setStatus("PDF-склады сгенерированы", "success", 3000);
+  } catch (e) {
+    console.error(e);
+    setStatus("Ошибка генерации PDF: " + e.message, "error");
+  } finally {
+    btn1.disabled = btn2.disabled = false;
+    btn1.textContent = "📄 PDF"; btn2.textContent = "📄 PDF";
+  }
+}
+document.getElementById("exportStocksPdf").addEventListener("click", exportStocksPdf);
+document.getElementById("exportStocksPdf2").addEventListener("click", exportStocksPdf);
+
+/* ============================================================
+   14. ЭКСПОРТ СКЛАДОВ В EXCEL
+   ============================================================ */
+function exportStocksXlsx() {
+  const wb = XLSX.utils.book_new();
+  function addSheet(name, items) {
+    const rows = items
+      .map(it => {
+        const r = findResource(it.id);
+        return [r.name, r.cat || "—", r.price, it.qty, it.qty * r.price];
+      })
+      .sort((a, b) => {
+        if (a[1] !== b[1]) return String(a[1]).localeCompare(String(b[1]), "ru");
+        return String(a[0]).localeCompare(String(b[0]), "ru");
+      });
+    const total = items.reduce((s, it) => {
+      const r = findResource(it.id); return s + it.qty * r.price;
+    }, 0);
+    const data = [
+      ["Ресурс", "Категория", "Цена за 1 шт.", "Количество", "Стоимость"],
+      ...rows,
+      ["", "", "", "ИТОГО:", total]
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    ws["!cols"] = [{ wch: 35 }, { wch: 14 }, { wch: 16 }, { wch: 12 }, { wch: 14 }];
+    XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31));
+  }
+  addSheet("Фракция", state.faction);
+  state.players.forEach(p => addSheet(p.player, p.items));
+  XLSX.writeFile(wb, `koop-stocks-${new Date().toISOString().slice(0,10)}.xlsx`);
+  setStatus("Excel-склады сгенерированы", "success", 3000);
+}
+document.getElementById("exportStocksXlsx").addEventListener("click", exportStocksXlsx);
+document.getElementById("exportStocksXlsx2").addEventListener("click", exportStocksXlsx);
+
+/* ============================================================
+   15. ТАБЫ
    ============================================================ */
 document.querySelectorAll(".tab").forEach(tab => {
   tab.addEventListener("click", () => {
     document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
     tab.classList.add("active");
     const t = tab.dataset.tab;
-    document.getElementById("tab-catalog").style.display  = t === "catalog" ? "" : "none";
+    document.getElementById("tab-catalog").style.display = t === "catalog" ? "" : "none";
     document.getElementById("tab-faction").style.display = t === "faction" ? "" : "none";
     document.getElementById("tab-players").style.display = t === "players" ? "" : "none";
   });
 });
 
 /* ============================================================
-   11. СТАРТ
+   16. СТАРТ
    ============================================================ */
-loadFromGitHub();
+renderCatalog();
+renderFaction();
+renderPlayers();
+setStatus("Готово. Данные хранятся в браузере.", "info", 3000);
 </script>
 </body>
 </html>
