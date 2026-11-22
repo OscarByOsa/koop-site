@@ -1,0 +1,8 @@
+{
+  "factionStock": [],
+  "playerStocks": [
+    { "player": "OscarByOsa", "role": "Участник фракции", "items": [] },
+    { "player": "Clanzlo",    "role": "Участник фракции", "items": [] },
+    { "player": "KORBUT",     "role": "Участник фракции", "items": [] }
+  ]
+}

@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Кооператив — Торговая фракция</title>
+<style>
+  :root {
+    --bg: #121212;
+    --panel: #1c1c1c;
+    --panel-2: #242424;
+    --border: #3a3a3a;
+    --text: #e8e8e8;
+    --muted: #9a9a9a;
+    --accent: #d4a017;
+    --accent-2: #f0c040;
+    --good: #4caf50;
+    --danger: #c0392b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    background: linear-gradient(135deg, #1a1a1a, #2a2a2a);
+    border-bottom: 2px solid var(--accent);
+    padding: 20px 30px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+  header h1 { margin: 0; font-size: 1.6rem; letter-spacing: 1px; }
+  header h1 span { color: var(--accent); }
+  header .sub { color: var(--muted); font-size: .9rem; margin-top: 4px; }
+  .header-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
+  .edit-btn {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 18px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: .9rem;
+    transition: .15s;
+  }
+  .edit-btn:hover { border-color: var(--accent); }
+  .edit-btn.active {
+    background: var(--danger);
+    border-color: var(--danger);
+    color: #fff;
+  }
+  .save-btn {
+    background: var(--good);
+    border: 1px solid var(--good);
+    color: #fff;
+    padding: 10px 18px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: .9rem;
+    font-weight: 600;
+    transition: .15s;
+  }
+  .save-btn:hover { background: #5cbf60; }
+  .save-btn:disabled { opacity: .5; cursor: not-allowed; }
+  .container {
+    max-width: 1500px;
+    margin: 0 auto;
+    padding: 20px 30px 60px;
+  }
+  .toolbar {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+  .toolbar input, .toolbar select {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-size: .95rem;
+    outline: none;
+  }
+  .toolbar input { flex: 1; min-width: 220px; }
+  .toolbar input:focus, .toolbar select:focus { border-color: var(--accent); }
+  .tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+  .tab {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 10px 18px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: .9rem;
+    transition: .15s;
+  }
+  .tab:hover { border-color: var(--accent); color: var(--text); }
+  .tab.active {
+    background: var(--accent);
+    color: #111;
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 14px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    transition: .15s;
+  }
+  .card:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+  }
+  .card img {
+    width: 64px;
+    height: 64px;
+    image-rendering: pixelated;
+    margin-bottom: 8px;
+  }
+  .card .name { font-size: .88rem; margin-bottom: 4px; min-height: 2.4em; }
+  .card .price { color: var(--accent-2); font-weight: 700; font-size: 1rem; }
+  .card .uses {
+    font-size: .7rem;
+    color: var(--muted);
+    margin-top: 4px;
+    min-height: 1.2em;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  th, td {
+    padding: 10px 14px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    font-size: .9rem;
+    vertical-align: middle;
+  }
+  th {
+    background: var(--panel-2);
+    color: var(--accent);
+    text-transform: uppercase;
+    font-size: .75rem;
+    letter-spacing: .5px;
+  }
+  tr:hover td { background: var(--panel-2); }
+  td.qty { color: var(--good); font-weight: 600; }
+  td.price { color: var(--accent-2); font-weight: 600; }
+  .empty { color: var(--muted); padding: 30px; text-align: center; }
+  .empty-stock { color: var(--muted); font-style: italic; padding: 14px 0; }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: .72rem;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+  }
+  .stock-total { margin-top: 10px; color: var(--accent-2); font-weight: 600; }
+  .edit-input {
+    width: 80px;
+    background: var(--panel-2);
+    border: 1px solid var(--accent);
+    color: var(--text);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: .9rem;
+    outline: none;
+  }
+  .btn {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: .85rem;
+    transition: .15s;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+  .btn-danger:hover { background: #e74c3c; border-color: #e74c3c; }
+  .btn-add { background: var(--good); border-color: var(--good); color: #fff; }
+  .btn-add:hover { background: #5cbf60; border-color: #5cbf60; }
+  .edit-toolbar {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    margin-bottom: 20px;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .edit-toolbar select, .edit-toolbar input {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: .9rem;
+  }
+  .edit-toolbar select { min-width: 260px; }
+  .edit-toolbar input { width: 100px; }
+  footer { text-align: center; color: var(--muted); font-size: .8rem; padding: 30px; }
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+  .modal {
+    background: var(--panel);
+    border: 1px solid var(--accent);
+    border-radius: 10px;
+    padding: 24px;
+    max-width: 420px;
+    width: 100%;
+  }
+  .modal h2 { margin: 0 0 14px; font-size: 1.2rem; color: var(--accent); }
+  .modal p { color: var(--muted); font-size: .85rem; margin: 0 0 14px; }
+  .modal input {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-size: 1rem;
+    margin-bottom: 14px;
+    outline: none;
+  }
+  .modal input:focus { border-color: var(--accent); }
+  .modal-buttons { display: flex; gap: 10px; justify-content: flex-end; }
+  .modal-error { color: var(--danger); font-size: .85rem; margin-bottom: 10px; min-height: 1.2em; }
+  .status-banner {
+    padding: 10px 20px;
+    text-align: center;
+    font-size: .9rem;
+    display: none;
+  }
+  .status-banner.show { display: block; }
+  .status-banner.success { background: rgba(76,175,80,.15); color: var(--good); border-bottom: 1px solid var(--good); }
+  .status-banner.error { background: rgba(192,57,43,.15); color: #e74c3c; border-bottom: 1px solid var(--danger); }
+  .status-banner.info { background: rgba(212,160,23,.15); color: var(--accent-2); border-bottom: 1px solid var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Кооператив <span>— Торговая фракция</span></h1>
+    <div class="sub">Каталог ресурсов · Склад фракции · Склады участников · Цены в гайках за 1 шт.</div>
+  </div>
+  <div class="header-buttons">
+    <button id="saveBtn" class="save-btn" style="display:none;">💾 Сохранить на GitHub</button>
+    <button id="editToggle" class="edit-btn">🔒 Режим редактирования</button>
+  </div>
+</header>
+
+<div id="statusBanner" class="status-banner"></div>
+
+<div class="container">
+  <div class="tabs">
+    <div class="tab active" data-tab="catalog">Каталог ресурсов</div>
+    <div class="tab" data-tab="faction">Склад фракции</div>
+    <div class="tab" data-tab="players">Склады участников</div>
+  </div>
+
+  <section id="tab-catalog">
+    <div class="toolbar">
+      <input id="search" type="text" placeholder="Поиск по названию…">
+      <select id="sortBy">
+        <option value="name">Сортировка: по названию</option>
+        <option value="priceAsc">Цена ↑</option>
+        <option value="priceDesc">Цена ↓</option>
+      </select>
+    </div>
+    <div id="catalogGrid" class="grid"></div>
+  </section>
+
+  <section id="tab-faction" style="display:none">
+    <div class="toolbar">
+      <input id="searchFaction" type="text" placeholder="Поиск по складу фракции…">
+    </div>
+    <div id="factionEditBar"></div>
+    <div id="factionWrap"></div>
+  </section>
+
+  <section id="tab-players" style="display:none">
+    <div class="toolbar">
+      <input id="searchPlayers" type="text" placeholder="Поиск по игроку или ресурсу…">
+    </div>
+    <div id="playersEditBar"></div>
+    <div id="playersWrap"></div>
+  </section>
+</div>
+
+<footer>Кооператив · данные хранятся в репозитории GitHub · валюта: гайка</footer>
+
+<script>
+/* ============================================================
+   КОНФИГУРАЦИЯ GITHUB
+   ЗАМЕНИТЕ НА СВОИ ДАННЫЕ!
+   ============================================================ */
+const GITHUB_OWNER  = "OscarByOsa";          // например "muzzbad"
+const GITHUB_REPO   = "koop-site";         // имя репозитория
+const GITHUB_BRANCH = "main";              // ветка Pages
+const GITHUB_PATH   = "data/stocks.json";  // путь к файлу данных
+
+const EDIT_PASSWORD = "9844";
+const STORAGE_KEY_TOKEN = "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";
+
+/* ============================================================
+   1. РЕЕСТР РЕСУРСОВ
+   ============================================================ */
+const RESOURCES = [
+  { id: "tkan_kevlar",          name: "Ткань кевлар",            price: 8,  uses: "Почти все брони" },
+  { id: "kolchuga_titan",       name: "Кольчуга титан",          price: 8,  uses: "Attacker, Bastion, Cifra, Defender, Himera, Krechet, Priboy, Ratnik, Ten" },
+  { id: "kolchuga_polotno",     name: "Кольчуга полотно",        price: 4,  uses: "Cifra, Feldgrau, Himera, Krechet, Priboy, Ratnik, Scout, Ten, Attacker" },
+  { id: "nitki_nylon",          name: "Нитки нейлоновые",        price: 4,  uses: "Почти все брони" },
+  { id: "zaklepka_stal",        name: "Заклёпка стальная",       price: 3,  uses: "Attacker, Defender, Feldgrau, Krechet, Medical, Sniper" },
+  { id: "remen_stropa",         name: "Ремень стропа",           price: 3,  uses: "Attacker, Cifra, Feldgrau, Krechet, Medical, Priboy, Ratnik, Scout, Sniper" },
+  { id: "kozha_obrezki",        name: "Кожа — обрезки",          price: 3,  uses: "Attacker, Cifra, Defender, Feldgrau, Himera, Krechet, Medical, Priboy, Ratnik, Scout, Sniper, Ten" },
+  { id: "podsumok_maly",        name: "Подсумок малый",          price: 4,  uses: "Attacker, Krechet, Priboy, Ten" },
+  { id: "chehol_bronezhilet",   name: "Чехол бронежилета",       price: 6,  uses: "Attacker, Himera, Priboy, Ratnik" },
+  { id: "razgruzka_osnova",     name: "Разгрузка — основа",      price: 6,  uses: "Cifra" },
+  { id: "rezinovy_uplot",       name: "Уплотнитель резиновый",   price: 4,  uses: "Химера, ОЗК, Дезертир" },
+  { id: "probka_rezina",        name: "Пробка резиновая",        price: 3,  uses: "ОЗК, Химера, Дезертир" },
+  { id: "plata_tv",             name: "Плата ТВ",                price: 20, uses: "Шпион, Тень" },
+  { id: "batareyka_kron",       name: "Батарейка «Крона»",       price: 15, uses: "Шпион, Тень" },
+  { id: "zerkalo_oskolok",      name: "Зеркало — осколок",       price: 10, uses: "Шпион" },
+  { id: "plastina_titan",       name: "Пластина титан",          price: 25, uses: "Бастион" },
+  { id: "motorchik",            name: "Моторчик",                price: 18, uses: "Бастион" },
+  { id: "shesternya_stal",      name: "Шестерня стальная",       price: 12, uses: "Бастион" },
+  { id: "podshipnik_rzhavy",    name: "Подшипник ржавый",        price: 6,  uses: "Бастион" },
+  { id: "amort_vstavka",        name: "Амортизатор — вставка",   price: 8,  uses: "Бастион" },
+  { id: "shitok_golen",         name: "Щиток голени",            price: 8,  uses: "Бастион" },
+  { id: "provodka_zhgut",       name: "Проводка-жгут",           price: 5,  uses: "Бастион" },
+  { id: "plastina_stal",        name: "Пластина сталь",          price: 10, uses: "Защитник" },
+  { id: "plastina_polietilen",  name: "Пластина полиэтилен",     price: 15, uses: "Тень" },
+  { id: "zabralo_polikarbonat", name: "Забрало поликарбонат",    price: 30, uses: "Бастион" },
+  { id: "tkanevaya_vetosh",     name: "Тканевая ветошь",         price: 1,  uses: "Шелест" },
+  { id: "shnurki_kevlar",       name: "Шнурки кевларовые",       price: 2,  uses: "—" },
+  { id: "shnur_parakord",       name: "Шнур паракорд",           price: 2,  uses: "—" },
+  { id: "lipuchka_velcro",      name: "Липучка (велкро)",        price: 2,  uses: "—" },
+  { id: "izolenta_sinyaya",     name: "Изолента синяя",          price: 1,  uses: "—" },
+  { id: "gvozd_gnuty",          name: "Гвоздь гнутый",           price: 1,  uses: "—" },
+  { id: "bolt_gaika",           name: "Болт и гайка",            price: 1,  uses: "—" },
+  { id: "kley_moment",          name: "Клей «Момент»",           price: 2,  uses: "—" },
+  { id: "kanifol",              name: "Канифоль",                price: 2,  uses: "—" },
+  { id: "pripoy_olovo",         name: "Припой оловянный",        price: 2,  uses: "—" },
+  { id: "provod_katushka",      name: "Провод-катушка",          price: 2,  uses: "—" },
+  { id: "kondensator",          name: "Конденсатор",             price: 2,  uses: "—" },
+  { id: "diod_most",            name: "Диодный мост",            price: 2,  uses: "—" },
+  { id: "rele_povorot",         name: "Реле поворота",           price: 2,  uses: "—" },
+  { id: "radiolampa",           name: "Радиолампа",              price: 4,  uses: "—" },
+  { id: "transformator",        name: "Трансформатор",           price: 5,  uses: "—" },
+  { id: "displej_nokia",        name: "Дисплей Nokia",           price: 6,  uses: "—" },
+  { id: "akkum_vzdut",          name: "Аккумулятор вздутый",     price: 5,  uses: "—" },
+  { id: "optika_linza",         name: "Оптика — линза",          price: 12, uses: "—" },
+  { id: "stabilizator",         name: "Стабилизатор",            price: 15, uses: "—" },
+  { id: "glushitel",            name: "Глушитель",               price: 20, uses: "—" },
+  { id: "pricel",               name: "Прицел",                  price: 18, uses: "—" },
+  { id: "stvol_sniper",         name: "Ствол снайперский",       price: 25, uses: "—" },
+];
+
+/* ============================================================
+   2. СОСТОЯНИЕ
+   ============================================================ */
+let factionStock = [];
+let playerStocks = [];
+let editMode = false;
+let currentSha = null;            // SHA файла данных в GitHub (нужен для PUT)
+let dirty = false;                // есть ли несохранённые изменения
+
+const statusBanner = document.getElementById("statusBanner");
+
+function setStatus(msg, type = "info", autoHide = 0) {
+  statusBanner.textContent = msg;
+  statusBanner.className = `status-banner show ${type}`;
+  if (autoHide) setTimeout(() => statusBanner.classList.remove("show"), autoHide);
+}
+
+/* ============================================================
+   3. ЗАГРУЗКА ДАННЫХ С GITHUB
+   ============================================================ */
+async function loadFromGitHub() {
+  setStatus("Загрузка данных с GitHub…", "info");
+  try {
+    const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_PATH}?ref=${GITHUB_BRANCH}`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error(`GitHub API: ${res.status} ${res.statusText}`);
+    const data = await res.json();
+    currentSha = data.sha;
+    const content = atob(data.content.replace(/\n/g, ""));
+    const parsed = JSON.parse(content);
+    factionStock = parsed.factionStock || [];
+    playerStocks = parsed.playerStocks || [];
+    setStatus("Данные загружены с GitHub", "success", 2500);
+    dirty = false;
+    updateSaveButton();
+    renderFaction();
+    renderPlayers();
+  } catch (e) {
+    console.error(e);
+    setStatus("Ошибка загрузки: " + e.message, "error");
+    // fallback — пустые данные
+    factionStock = [];
+    playerStocks = [
+      { player: "OscarByOsa", role: "Участник фракции", items: [] },
+      { player: "Clanzlo",    role: "Участник фракции", items: [] },
+      { player: "KORBUT",     role: "Участник фракции", items: [] },
+    ];
+    renderFaction();
+    renderPlayers();
+  }
+}
+
+/* ============================================================
+   4. СОХРАНЕНИЕ НА GITHUB
+   ============================================================ */
+function getToken() {
+  return localStorage.getItem(STORAGE_KEY_TOKEN) || "";
+}
+
+function setToken(token) {
+  localStorage.setItem(STORAGE_KEY_TOKEN, token);
+}
+
+async function saveToGitHub() {
+  const token = getToken();
+  if (!token) {
+    setStatus("Не задан GitHub-токен", "error");
+    return;
+  }
+  setStatus("Сохранение на GitHub…", "info");
+
+  const content = JSON.stringify({ factionStock, playerStocks }, null, 2);
+  const contentB64 = btoa(unescape(encodeURIComponent(content)));
+
+  const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_PATH}`;
+  const body = {
+    message: `Обновление складов ${new Date().toLocaleString("ru-RU")}`,
+    content: contentB64,
+    branch: GITHUB_BRANCH,
+  };
+  if (currentSha) body.sha = currentSha;
+
+  try {
+    const res = await fetch(url, {
+      method: "PUT",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Accept": "application/vnd.github+json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || `${res.status} ${res.statusText}`);
+    }
+    const data = await res.json();
+    currentSha = data.content.sha;
+    setStatus("✅ Сохранено на GitHub. Страница обновится через ~1 мин.", "success", 6000);
+    dirty = false;
+    updateSaveButton();
+  } catch (e) {
+    console.error(e);
+    setStatus("Ошибка сохранения: " + e.message, "error");
+  }
+}
+
+/* ============================================================
+   5. УТИЛИТЫ
+   ============================================================ */
+function iconPath(id) { return `assets/ittems/textures/item/${id}.png`; }
+function findResource(id) {
+  return RESOURCES.find(r => r.id === id) || { id, name: id, price: 0, uses: "—" };
+}
+function pluralGayka(n) {
+  const abs = Math.abs(n) % 100;
+  const last = abs % 10;
+  if (abs > 10 && abs < 20) return "гаек";
+  if (last === 1) return "гайка";
+  if (last >= 2 && last <= 4) return "гайки";
+  return "гаек";
+}
+function markDirty() {
+  dirty = true;
+  updateSaveButton();
+}
+function updateSaveButton() {
+  const btn = document.getElementById("saveBtn");
+  if (!editMode) { btn.style.display = "none"; return; }
+  btn.style.display = "inline-block";
+  btn.disabled = !dirty;
+  btn.textContent = dirty ? "💾 Сохранить на GitHub *" : "💾 Сохранить на GitHub";
+}
+
+/* ============================================================
+   6. КАТАЛОГ
+   ============================================================ */
+const catalogGrid = document.getElementById("catalogGrid");
+const searchInput = document.getElementById("search");
+const sortBy = document.getElementById("sortBy");
+
+function renderCatalog() {
+  const q = searchInput.value.trim().toLowerCase();
+  let list = RESOURCES.filter(item =>
+    item.name.toLowerCase().includes(q) || item.id.toLowerCase().includes(q)
+  );
+  if (sortBy.value === "priceAsc")  list.sort((a, b) => a.price - b.price);
+  if (sortBy.value === "priceDesc") list.sort((a, b) => b.price - a.price);
+  if (sortBy.value === "name")      list.sort((a, b) => a.name.localeCompare(b.name, "ru"));
+
+  catalogGrid.innerHTML = list.map(item => `
+    <div class="card">
+      <img src="${iconPath(item.id)}" alt="${item.name}"
+           onerror="this.style.opacity='0.15'; this.src='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2264%22 height=%2264%22><rect width=%2264%22 height=%2264%22 fill=%22%23333%22/><text x=%2232%22 y=%2238%22 font-size=%2210%22 fill=%22%23888%22 text-anchor=%22middle%22>?</text></svg>'">
+      <div class="name">${item.name}</div>
+      <div class="price">${item.price} ${pluralGayka(item.price)}</div>
+      <div class="uses">${item.uses || "—"}</div>
+    </div>
+  `).join("") || `<div class="empty">Ничего не найдено</div>`;
+}
+searchInput.addEventListener("input", renderCatalog);
+sortBy.addEventListener("change", renderCatalog);
+renderCatalog();
+
+/* ============================================================
+   7. РЕНДЕР СКЛАДОВ
+   ============================================================ */
+function renderStockTable(items, searchQuery, opts = {}) {
+  const { editable = false } = opts;
+  const rows = items
+    .map(it => {
+      const res = findResource(it.id);
+      return { ...it, name: res.name, price: res.price };
+    })
+    .filter(it => !searchQuery
+      || it.name.toLowerCase().includes(searchQuery)
+      || it.id.toLowerCase().includes(searchQuery));
+
+  if (rows.length === 0 && !editable) return `<div class="empty-stock">Склад пуст</div>`;
+  const total = rows.reduce((s, it) => s + it.qty * it.price, 0);
+
+  return `
+    <table>
+      <thead>
+        <tr>
+          <th>Ресурс</th><th>Цена / шт.</th><th>Количество</th><th>Стоимость</th>
+          ${editable ? "<th></th>" : ""}
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.length === 0
+          ? `<tr><td colspan="${editable ? 5 : 4}" class="empty-stock">Склад пуст</td></tr>`
+          : rows.map(it => `
+            <tr>
+              <td>${it.name}</td>
+              <td class="price">${it.price} ${pluralGayka(it.price)}</td>
+              <td class="qty">
+                ${editable
+                  ? `<input type="number" min="0" class="edit-input" value="${it.qty}" data-id="${it.id}">`
+                  : `${it.qty} шт.`}
+              </td>
+              <td>${it.qty * it.price} ${pluralGayka(it.qty * it.price)}</td>
+              ${editable ? `<td><button class="btn btn-danger" data-remove="${it.id}">✕</button></td>` : ""}
+            </tr>
+          `).join("")}
+      </tbody>
+    </table>
+    <div class="stock-total">Итого по складу: ${total} ${pluralGayka(total)}</div>
+  `;
+}
+
+function renderAddBar(targetKey) {
+  if (!editMode) return "";
+  return `
+    <div class="edit-toolbar">
+      <select id="addSelect_${targetKey}">
+        <option value="">— Выберите ресурс —</option>
+        ${RESOURCES.map(r => `<option value="${r.id}">${r.name}</option>`).join("")}
+      </select>
+      <input id="addQty_${targetKey}" type="number" min="1" value="1">
+      <button class="btn btn-add" data-add="${targetKey}">+ Добавить</button>
+      <button class="btn" data-reset="${targetKey}">Сбросить склад</button>
+    </div>
+  `;
+}
+
+// --- Фракция ---
+const factionWrap = document.getElementById("factionWrap");
+const factionEditBar = document.getElementById("factionEditBar");
+const searchFaction = document.getElementById("searchFaction");
+
+function renderFaction() {
+  factionEditBar.innerHTML = renderAddBar("faction");
+  factionWrap.innerHTML = renderStockTable(
+    factionStock,
+    searchFaction.value.trim().toLowerCase(),
+    { editable: editMode }
+  );
+  if (editMode) bindFactionEvents();
+}
+
+function bindFactionEvents() {
+  factionWrap.querySelectorAll(".edit-input").forEach(inp => {
+    inp.addEventListener("change", () => {
+      const id = inp.dataset.id;
+      let val = parseInt(inp.value, 10);
+      if (isNaN(val) || val < 0) val = 0;
+      inp.value = val;
+      const item = factionStock.find(i => i.id === id);
+      if (item) { item.qty = val; markDirty(); renderFaction(); }
+    });
+  });
+  factionWrap.querySelectorAll("[data-remove]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      factionStock = factionStock.filter(i => i.id !== btn.dataset.remove);
+      markDirty(); renderFaction();
+    });
+  });
+  const addBtn = factionEditBar.querySelector('[data-add="faction"]');
+  if (addBtn) addBtn.addEventListener("click", () => {
+    const sel = document.getElementById("addSelect_faction");
+    const qty = document.getElementById("addQty_faction");
+    const id = sel.value;
+    const count = parseInt(qty.value, 10);
+    if (!id || !count || count <= 0) return;
+    const existing = factionStock.find(i => i.id === id);
+    if (existing) existing.qty += count;
+    else factionStock.push({ id, qty: count });
+    markDirty(); renderFaction();
+  });
+  const resetBtn = factionEditBar.querySelector('[data-reset="faction"]');
+  if (resetBtn) resetBtn.addEventListener("click", () => {
+    if (confirm("Сбросить склад фракции?")) {
+      factionStock.length = 0;
+      markDirty(); renderFaction();
+    }
+  });
+}
+
+searchFaction.addEventListener("input", renderFaction);
+renderFaction();
+
+// --- Игроки ---
+const playersWrap = document.getElementById("playersWrap");
+const playersEditBar = document.getElementById("playersEditBar");
+const searchPlayers = document.getElementById("searchPlayers");
+
+function renderPlayers() {
+  playersEditBar.innerHTML = editMode
+    ? `<div class="edit-toolbar"><span style="color:var(--muted);font-size:.9rem;">Редактируйте количество и добавляйте предметы в блоках игроков ниже.</span></div>`
+    : "";
+  const q = searchPlayers.value.trim().toLowerCase();
+  let html = "";
+  playerStocks.forEach((stock, idx) => {
+    if (q && !stock.items.length && !stock.player.toLowerCase().includes(q)) return;
+    html += `
+      <h3 style="margin:24px 0 8px;font-size:1.1rem;">
+        ${stock.player} <span class="badge">${stock.role}</span>
+      </h3>
+      ${editMode ? renderAddBar("player_" + idx) : ""}
+      ${renderStockTable(stock.items, q, { editable: editMode })}
+    `;
+  });
+  playersWrap.innerHTML = html || `<div class="empty">Ничего не найдено</div>`;
+
+  if (editMode) {
+    playerStocks.forEach((stock, idx) => {
+      playersWrap.querySelectorAll(`.edit-input`).forEach(inp => {
+        // привязка уже была выше — но данные привязаны к id, нужно найти нужный склад
+      });
+      // Универсальная привязка по контейнерам
+    });
+    // Привязка по всем полям — с поиском в каком блоке находимся
+    playersWrap.querySelectorAll("table").forEach((table, tableIdx) => {
+      const stock = playerStocks[tableIdx];
+      if (!stock) return;
+      table.querySelectorAll(".edit-input").forEach(inp => {
+        inp.addEventListener("change", () => {
+          const id = inp.dataset.id;
+          let val = parseInt(inp.value, 10);
+          if (isNaN(val) || val < 0) val = 0;
+          inp.value = val;
+          const item = stock.items.find(i => i.id === id);
+          if (item) { item.qty = val; markDirty(); renderPlayers(); }
+        });
+      });
+      table.querySelectorAll("[data-remove]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          stock.items = stock.items.filter(i => i.id !== btn.dataset.remove);
+          markDirty(); renderPlayers();
+        });
+      });
+    });
+    playerStocks.forEach((stock, idx) => {
+      const addBtn = playersWrap.querySelector(`[data-add="player_${idx}"]`);
+      if (addBtn) addBtn.addEventListener("click", () => {
+        const sel = document.getElementById(`addSelect_player_${idx}`);
+        const qty = document.getElementById(`addQty_player_${idx}`);
+        const id = sel.value;
+        const count = parseInt(qty.value, 10);
+        if (!id || !count || count <= 0) return;
+        const existing = stock.items.find(i => i.id === id);
+        if (existing) existing.qty += count;
+        else stock.items.push({ id, qty: count });
+        markDirty(); renderPlayers();
+      });
+      const resetBtn = playersWrap.querySelector(`[data-reset="player_${idx}"]`);
+      if (resetBtn) resetBtn.addEventListener("click", () => {
+        if (confirm(`Сбросить склад игрока ${stock.player}?`)) {
+          stock.items = [];
+          markDirty(); renderPlayers();
+        }
+      });
+    });
+  }
+}
+
+searchPlayers.addEventListener("input", renderPlayers);
+renderPlayers();
+
+/* ============================================================
+   8. РЕЖИМ РЕДАКТИРОВАНИЯ
+   ============================================================ */
+const editToggle = document.getElementById("editToggle");
+const saveBtn = document.getElementById("saveBtn");
+
+function setEditMode(on) {
+  editMode = on;
+  if (on) {
+    editToggle.classList.add("active");
+    editToggle.textContent = "🔓 Режим редактирования (вкл)";
+  } else {
+    editToggle.classList.remove("active");
+    editToggle.textContent = "🔒 Режим редактирования";
+  }
+  updateSaveButton();
+  renderFaction();
+  renderPlayers();
+}
+
+editToggle.addEventListener("click", () => {
+  if (editMode) { setEditMode(false); return; }
+  showPasswordModal();
+});
+
+saveBtn.addEventListener("click", saveToGitHub);
+
+/* ============================================================
+   9. МОДАЛЬНЫЕ ОКНА
+   ============================================================ */
+function showPasswordModal() {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="modal">
+      <h2>Вход в режим редактирования</h2>
+      <div class="modal-error" id="modalError"></div>
+      <input type="password" id="pwdInput" placeholder="Введите пароль" autofocus>
+      <div class="modal-buttons">
+        <button class="btn" id="pwdCancel">Отмена</button>
+        <button class="btn btn-add" id="pwdOk">Войти</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+  const input = backdrop.querySelector("#pwdInput");
+  const error = backdrop.querySelector("#modalError");
+  const okBtn = backdrop.querySelector("#pwdOk");
+  const cancelBtn = backdrop.querySelector("#pwdCancel");
+  function tryLogin() {
+    if (input.value === EDIT_PASSWORD) {
+      document.body.removeChild(backdrop);
+      if (!getToken()) showTokenModal();
+      else setEditMode(true);
+    } else {
+      error.textContent = "Неверный пароль";
+      input.value = "";
+      input.focus();
+    }
+  }
+  okBtn.addEventListener("click", tryLogin);
+  cancelBtn.addEventListener("click", () => document.body.removeChild(backdrop));
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter") tryLogin();
+    if (e.key === "Escape") document.body.removeChild(backdrop);
+  });
+  input.focus();
+}
+
+function showTokenModal() {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="modal">
+      <h2>GitHub Personal Access Token</h2>
+      <p>Нужен для сохранения изменений в репозитории. Создайте токен с правом <code>repo</code> в настройках GitHub (Settings → Developer settings → Personal access tokens). Токен хранится только в этом браузере.</p>
+      <div class="modal-error" id="modalError"></div>
+      <input type="password" id="tokenInput" placeholder="ghp_..." autofocus>
+      <div class="modal-buttons">
+        <button class="btn" id="tokenCancel">Отмена</button>
+        <button class="btn btn-add" id="tokenOk">Сохранить</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+  const input = backdrop.querySelector("#tokenInput");
+  const error = backdrop.querySelector("#modalError");
+  const okBtn = backdrop.querySelector("#tokenOk");
+  const cancelBtn = backdrop.querySelector("#tokenCancel");
+  okBtn.addEventListener("click", () => {
+    const t = input.value.trim();
+    if (!t.startsWith("ghp_") && !t.startsWith("github_pat_")) {
+      error.textContent = "Токен должен начинаться с ghp_ или github_pat_";
+      return;
+    }
+    setToken(t);
+    document.body.removeChild(backdrop);
+    setEditMode(true);
+    setStatus("Токен сохранён в браузере", "success", 3000);
+  });
+  cancelBtn.addEventListener("click", () => document.body.removeChild(backdrop));
+  input.addEventListener("keydown", e => { if (e.key === "Escape") document.body.removeChild(backdrop); });
+  input.focus();
+}
+
+/* ============================================================
+   10. ТАБЫ
+   ============================================================ */
+document.querySelectorAll(".tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+    tab.classList.add("active");
+    const t = tab.dataset.tab;
+    document.getElementById("tab-catalog").style.display  = t === "catalog" ? "" : "none";
+    document.getElementById("tab-faction").style.display = t === "faction" ? "" : "none";
+    document.getElementById("tab-players").style.display = t === "players" ? "" : "none";
+  });
+});
+
+/* ============================================================
+   11. СТАРТ — ЗАГРУЗКА С GITHUB
+   ============================================================ */
+loadFromGitHub();
+</script>
+</body>
+</html>
