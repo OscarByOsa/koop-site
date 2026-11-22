@@ -724,15 +724,49 @@ function renderStockTable(items, searchQuery, editable, kind, ownerIdx) {
 
 function renderAddBar(kind, ownerIdx, ownerLabel) {
   if (!editMode) return "";
+
+  // Сортировка ресурсов по русскому алфавиту
+  const sortedResources = [...state.resources].sort((a, b) =>
+    a.name.localeCompare(b.name, "ru", {
+      sensitivity: "base"
+    })
+  );
+
   return `
     <div class="edit-toolbar">
       <select id="addSelect_${kind}_${ownerIdx}">
         <option value="">— Выберите ресурс для «${ownerLabel}» —</option>
-        ${state.resources.map(r => `<option value="${r.id}">${r.name} (${r.price} г.)</option>`).join("")}
+
+        ${sortedResources.map(r => `
+          <option value="${r.id}">
+            ${r.name} (${r.price} г.)
+          </option>
+        `).join("")}
+
       </select>
-      <input id="addQty_${kind}_${ownerIdx}" type="number" min="1" value="1">
-      <button class="btn btn-good" data-add="${kind}" data-owner="${ownerIdx}">+ Добавить</button>
-      <button class="btn" data-clear="${kind}" data-owner="${ownerIdx}">Очистить склад</button>
+
+      <input
+        id="addQty_${kind}_${ownerIdx}"
+        type="number"
+        min="1"
+        value="1"
+      >
+
+      <button
+        class="btn btn-good"
+        data-add="${kind}"
+        data-owner="${ownerIdx}"
+      >
+        + Добавить
+      </button>
+
+      <button
+        class="btn"
+        data-clear="${kind}"
+        data-owner="${ownerIdx}"
+      >
+        Очистить склад
+      </button>
     </div>
   `;
 }
