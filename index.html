@@ -376,7 +376,7 @@ async function loadSealPng() {
    КОНСТАНТЫ
    ============================================================ */
 const EDIT_PASSWORD = "9844";
-const STORAGE_KEY = "koop_editor_v5";
+const STORAGE_KEY = "koop_editor_v6";
 
 /* ============================================================
    НОВЫЕ НАЗВАНИЯ КАТЕГОРИЙ
@@ -393,7 +393,7 @@ const CATEGORIES = {
 };
 
 /* ============================================================
-   ДЕФОЛТНЫЙ РЕЕСТР РЕСУРСОВ (из koop-backup-2026-11-23.json)
+   ДЕФОЛТНЫЙ РЕЕСТР РЕСУРСОВ
    ============================================================ */
 const DEFAULT_RESOURCES = [
   // ---------- Оружие ----------
@@ -464,6 +464,13 @@ const DEFAULT_RESOURCES = [
   { id:"ugol_aktiv", cat:CATEGORIES.ammo, name:"Уголь для пороховой смеси", price:10, uses:"" },
   { id:"svinets_kartech", cat:CATEGORIES.ammo, name:"Картечь", price:5, uses:"" },
   { id:"trubka_gilza", cat:CATEGORIES.ammo, name:"Пластиковая трубка гильзы", price:50, uses:"" },
+
+  // ---------- Боеприпасы для техники ----------
+  { id:"bmp_30mm_bt",   cat:CATEGORIES.ammo, name:"Снаряды 30мм БТ", price:288, uses:"БМП-2 (пушка)" },
+  { id:"bmp_30mm_ofz",  cat:CATEGORIES.ammo, name:"Снаряды 30мм ОФЗ", price:296, uses:"БМП-2 (пушка)" },
+  { id:"btr_belt_762",  cat:CATEGORIES.ammo, name:"Пулемётная лента 7.62мм (БТР)", price:640, uses:"БТР-70 (пулемёт)" },
+  { id:"pkt_belt",      cat:CATEGORIES.ammo, name:"Лента ПКТ 7.62мм (БМП)", price:320, uses:"БМП-2 (ПКТ)" },
+  { id:"tank_shell",    cat:CATEGORIES.ammo, name:"Снаряд 125мм", price:312, uses:"Т-72, Т-64" },
 
   // ---------- Электроника ----------
   { id:"plata_tv", cat:CATEGORIES.electro, name:"Плата от старого телевизора", price:3, uses:"Шпион, Тень" },
