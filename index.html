@@ -11,7 +11,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
 <script>
-/* Загрузка кириллического шрифта в jsPDF */
+/* ============================================================
+   ЗАГРУЗКА ШРИФТА ДЛЯ PDF
+   ============================================================ */
 async function loadCyrillicFont(doc) {
   const urls = [
     "https://cdn.jsdelivr.net/gh/googlefonts/roboto@main/src/hinted/Roboto-Regular.ttf",
@@ -33,10 +35,10 @@ async function loadCyrillicFont(doc) {
   return false;
 }
 
-/* Кэш иконок: id -> dataURL (или null) */
+/* ============================================================
+   КЭШ ИКОНОК
+   ============================================================ */
 const ICON_CACHE = {};
-
-/* Загрузка одной иконки как dataURL */
 async function loadIconDataUrl(id) {
   if (id in ICON_CACHE) return ICON_CACHE[id];
   const url = `assets/ittems/textures/item/${id}.png`;
@@ -57,32 +59,59 @@ async function loadIconDataUrl(id) {
     return null;
   }
 }
-
-/* Предзагрузка набора иконок */
 async function preloadIcons(ids) {
   await Promise.all(ids.map(id => loadIconDataUrl(id)));
 }
 
-/* Кэш печати */
-let SEAL_DATA_URL = null;
-async function loadSealDataUrl() {
-  if (SEAL_DATA_URL) return SEAL_DATA_URL;
+/* ============================================================
+   ЗАГРУЗКА И КОНВЕРТАЦИЯ ПЕЧАТИ (SVG -> PNG dataURL)
+   jsPDF не умеет надёжно вставлять SVG, поэтому конвертируем в PNG
+   ============================================================ */
+let SEAL_PNG_DATA_URL = null;
+async function loadSealPng() {
+  if (SEAL_PNG_DATA_URL) return SEAL_PNG_DATA_URL;
   const url = "assets/ittems/textures/svgs/pechat.svg";
   try {
     const res = await fetch(url);
-    if (!res.ok) return null;
-    const text = await res.text();
-    const blob = new Blob([text], { type: "image/svg+xml" });
-    const dataUrl = await new Promise((resolve, reject) => {
-      const r = new FileReader();
-      r.onload = () => resolve(r.result);
-      r.onerror = reject;
-      r.readAsDataURL(blob);
+    if (!res.ok) { console.warn("Печать не найдена:", url, res.status); return null; }
+    let svgText = await res.text();
+
+    // Гарантируем, что у svg есть width/height (некоторые редакторы их опускают)
+    if (!/width=/.test(svgText) || !/height=/.test(svgText)) {
+      svgText = svgText.replace(/<svg\b([^>]*)>/i, (m, attrs) => {
+        const cleaned = attrs.replace(/\s(width|height)="[^"]*"/g, "");
+        return `<svg${cleaned} width="512" height="512">`;
+      });
+    }
+
+    const blob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
+    const blobUrl = URL.createObjectURL(blob);
+
+    const pngUrl = await new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const size = 512;
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, size, size);
+        ctx.drawImage(img, 0, 0, size, size);
+        URL.revokeObjectURL(blobUrl);
+        resolve(canvas.toDataURL("image/png"));
+      };
+      img.onerror = (e) => {
+        console.warn("Не удалось отрисовать SVG печати", e);
+        URL.revokeObjectURL(blobUrl);
+        resolve(null);
+      };
+      img.src = blobUrl;
     });
-    SEAL_DATA_URL = dataUrl;
-    return dataUrl;
+
+    SEAL_PNG_DATA_URL = pngUrl;
+    return pngUrl;
   } catch (e) {
-    console.warn("Печать не загружена", e);
+    console.warn("Ошибка загрузки печати", e);
     return null;
   }
 }
@@ -349,246 +378,260 @@ async function loadSealDataUrl() {
    КОНСТАНТЫ
    ============================================================ */
 const EDIT_PASSWORD = "9844";
-const STORAGE_KEY = "koop_editor_v3";
+const STORAGE_KEY = "koop_editor_v4";
 
 /* ============================================================
-   1. ДЕФОЛТНЫЙ РЕЕСТР РЕСУРСОВ (пересчитано по прайс-листу)
+   НОВЫЕ НАЗВАНИЯ КАТЕГОРИЙ
+   ============================================================ */
+const CATEGORIES = {
+  weapon:  "Оружие",
+  ammo:    "Боеприпасы",
+  electro: "Электроника",
+  junk:    "Хлам",
+  tools:   "Инструменты",
+  auto:    "Автозапчасти",
+  armor:   "Броня",
+  vanilla: "Ванильные ресурсы"
+};
+
+/* ============================================================
+   ДЕФОЛТНЫЙ РЕЕСТР РЕСУРСОВ (цены по прайс-листу)
    ============================================================ */
 const DEFAULT_RESOURCES = [
   // ---------- Оружие ----------
-  { id:"stvol_vintovka", cat:"Оружие", name:"Винтовочный ствол", price:100, uses:"" },
-  { id:"stvol_pistolet", cat:"Оружие", name:"Пистолетный ствол", price:15, uses:"" },
-  { id:"stvol_drobovik", cat:"Оружие", name:"Оружейный ствол", price:25, uses:"" },
-  { id:"zatvor_ak", cat:"Оружие", name:"Затворная рама", price:190, uses:"" },
-  { id:"zatvor_vintovka", cat:"Оружие", name:"Продольно-скользящий затвор", price:140, uses:"" },
-  { id:"zatvor_pistolet", cat:"Оружие", name:"Затвор пистолета", price:24, uses:"" },
-  { id:"pruzhina_boevaya", cat:"Оружие", name:"Боевая пружина", price:80, uses:"" },
-  { id:"pruzhina_vozvrat", cat:"Оружие", name:"Возвратная пружина", price:24, uses:"" },
-  { id:"usm_detali", cat:"Оружие", name:"Детали УСМ", price:200, uses:"" },
-  { id:"priklad_derevo", cat:"Оружие", name:"Деревянный приклад", price:15, uses:"" },
-  { id:"priklad_carbon", cat:"Оружие", name:"Карбоновый приклад", price:30, uses:"" },
-  { id:"priklad_skladnoy", cat:"Оружие", name:"Рамочный складной приклад", price:20, uses:"" },
-  { id:"rukoyatka_pistolet", cat:"Оружие", name:"Бакелитовая рукоятка", price:25, uses:"" },
-  { id:"tsevye_plastik", cat:"Оружие", name:"Полимерное цевьё", price:17, uses:"" },
-  { id:"tsevye_metall", cat:"Оружие", name:"Металлическое цевьё", price:17, uses:"" },
-  { id:"tsevye_derevo", cat:"Оружие", name:"Деревянное цевьё", price:17, uses:"" },
-  { id:"magazin_korpus", cat:"Оружие", name:"Корпус магазина", price:10, uses:"" },
-  { id:"magazin_pruzhina", cat:"Оружие", name:"Пружина магазина", price:24, uses:"" },
-  { id:"podatnik_magazin", cat:"Оружие", name:"Податчик патронов", price:10, uses:"" },
-  { id:"boyok", cat:"Оружие", name:"Стальной боёк", price:10, uses:"" },
-  { id:"boyok_ruzhye", cat:"Оружие", name:"Боёк для двустволки", price:70, uses:"" },
-  { id:"gazovaya_trubka", cat:"Оружие", name:"Газовая трубка", price:50, uses:"" },
-  { id:"dula_tormoz", cat:"Оружие", name:"Дульный тормоз-компенсатор", price:60, uses:"" },
-  { id:"optika_linza", cat:"Оружие", name:"Разбитая линза прицела", price:70, uses:"" },
-  { id:"kreplenie_lastochka", cat:"Оружие", name:"Крепление Ласточкин хвост", price:30, uses:"" },
-  { id:"kreplenie_nato", cat:"Оружие", name:"Западное крепление", price:24, uses:"" },
-  { id:"ramka_pistolet", cat:"Оружие", name:"Пистолетная рамка", price:24, uses:"" },
-  { id:"shampol", cat:"Оружие", name:"Оружейный шомпол", price:24, uses:"" },
-  { id:"kryshka_stv_kor", cat:"Оружие", name:"Крышка ствольной коробки", price:10, uses:"" },
-  { id:"predorhanitel_ognya", cat:"Оружие", name:"Предохранитель", price:24, uses:"" },
-  { id:"ottyazhka_trosa", cat:"Оружие", name:"Стальной тросик затвора", price:10, uses:"" },
-  { id:"mushka_pered", cat:"Оружие", name:"Мушка", price:24, uses:"" },
-  { id:"tselik_zad", cat:"Оружие", name:"Целик", price:100, uses:"" },
-  { id:"vkladysh_stvol", cat:"Оружие", name:"Ствольный вкладыш", price:150, uses:"" },
-  { id:"zatvornaya_zaderzh", cat:"Оружие", name:"Затворная задержка", price:24, uses:"" },
-  { id:"vybrasyvatel", cat:"Оружие", name:"Экстрактор", price:24, uses:"" },
-  { id:"sheptalo", cat:"Оружие", name:"Шептало", price:110, uses:"" },
-  { id:"nakladka_gaz", cat:"Оружие", name:"Накладка газовой трубки", price:15, uses:"" },
-  { id:"stopornoe_koltso", cat:"Оружие", name:"Стопорное кольцо", price:24, uses:"" },
-  { id:"vtulka_perehod", cat:"Оружие", name:"Переходная втулка ствола", price:24, uses:"" },
-  { id:"gajka_stvol", cat:"Оружие", name:"Ствольная гайка", price:15, uses:"" },
-  { id:"podschechnik", cat:"Оружие", name:"Кожаный подщечник", price:500, uses:"" },
+  { id:"stvol_vintovka", cat:CATEGORIES.weapon, name:"Винтовочный ствол", price:100, uses:"" },
+  { id:"stvol_pistolet", cat:CATEGORIES.weapon, name:"Пистолетный ствол", price:15, uses:"" },
+  { id:"stvol_drobovik", cat:CATEGORIES.weapon, name:"Оружейный ствол", price:25, uses:"" },
+  { id:"zatvor_ak", cat:CATEGORIES.weapon, name:"Затворная рама", price:190, uses:"" },
+  { id:"zatvor_vintovka", cat:CATEGORIES.weapon, name:"Продольно-скользящий затвор", price:140, uses:"" },
+  { id:"zatvor_pistolet", cat:CATEGORIES.weapon, name:"Затвор пистолета", price:24, uses:"" },
+  { id:"pruzhina_boevaya", cat:CATEGORIES.weapon, name:"Боевая пружина", price:80, uses:"" },
+  { id:"pruzhina_vozvrat", cat:CATEGORIES.weapon, name:"Возвратная пружина", price:24, uses:"" },
+  { id:"usm_detali", cat:CATEGORIES.weapon, name:"Детали УСМ", price:200, uses:"" },
+  { id:"priklad_derevo", cat:CATEGORIES.weapon, name:"Деревянный приклад", price:15, uses:"" },
+  { id:"priklad_carbon", cat:CATEGORIES.weapon, name:"Карбоновый приклад", price:30, uses:"" },
+  { id:"priklad_skladnoy", cat:CATEGORIES.weapon, name:"Рамочный складной приклад", price:20, uses:"" },
+  { id:"rukoyatka_pistolet", cat:CATEGORIES.weapon, name:"Бакелитовая рукоятка", price:25, uses:"" },
+  { id:"tsevye_plastik", cat:CATEGORIES.weapon, name:"Полимерное цевьё", price:17, uses:"" },
+  { id:"tsevye_metall", cat:CATEGORIES.weapon, name:"Металлическое цевьё", price:17, uses:"" },
+  { id:"tsevye_derevo", cat:CATEGORIES.weapon, name:"Деревянное цевьё", price:17, uses:"" },
+  { id:"magazin_korpus", cat:CATEGORIES.weapon, name:"Корпус магазина", price:10, uses:"" },
+  { id:"magazin_pruzhina", cat:CATEGORIES.weapon, name:"Пружина магазина", price:24, uses:"" },
+  { id:"podatnik_magazin", cat:CATEGORIES.weapon, name:"Податчик патронов", price:10, uses:"" },
+  { id:"boyok", cat:CATEGORIES.weapon, name:"Стальной боёк", price:10, uses:"" },
+  { id:"boyok_ruzhye", cat:CATEGORIES.weapon, name:"Боёк для двустволки", price:70, uses:"" },
+  { id:"gazovaya_trubka", cat:CATEGORIES.weapon, name:"Газовая трубка", price:50, uses:"" },
+  { id:"dula_tormoz", cat:CATEGORIES.weapon, name:"Дульный тормоз-компенсатор", price:60, uses:"" },
+  { id:"optika_linza", cat:CATEGORIES.weapon, name:"Разбитая линза прицела", price:70, uses:"" },
+  { id:"kreplenie_lastochka", cat:CATEGORIES.weapon, name:"Крепление Ласточкин хвост", price:30, uses:"" },
+  { id:"kreplenie_nato", cat:CATEGORIES.weapon, name:"Западное крепление", price:24, uses:"" },
+  { id:"ramka_pistolet", cat:CATEGORIES.weapon, name:"Пистолетная рамка", price:24, uses:"" },
+  { id:"shampol", cat:CATEGORIES.weapon, name:"Оружейный шомпол", price:24, uses:"" },
+  { id:"kryshka_stv_kor", cat:CATEGORIES.weapon, name:"Крышка ствольной коробки", price:10, uses:"" },
+  { id:"predorhanitel_ognya", cat:CATEGORIES.weapon, name:"Предохранитель", price:24, uses:"" },
+  { id:"ottyazhka_trosa", cat:CATEGORIES.weapon, name:"Стальной тросик затвора", price:10, uses:"" },
+  { id:"mushka_pered", cat:CATEGORIES.weapon, name:"Мушка", price:24, uses:"" },
+  { id:"tselik_zad", cat:CATEGORIES.weapon, name:"Целик", price:100, uses:"" },
+  { id:"vkladysh_stvol", cat:CATEGORIES.weapon, name:"Ствольный вкладыш", price:150, uses:"" },
+  { id:"zatvornaya_zaderzh", cat:CATEGORIES.weapon, name:"Затворная задержка", price:24, uses:"" },
+  { id:"vybrasyvatel", cat:CATEGORIES.weapon, name:"Экстрактор", price:24, uses:"" },
+  { id:"sheptalo", cat:CATEGORIES.weapon, name:"Шептало", price:110, uses:"" },
+  { id:"nakladka_gaz", cat:CATEGORIES.weapon, name:"Накладка газовой трубки", price:15, uses:"" },
+  { id:"stopornoe_koltso", cat:CATEGORIES.weapon, name:"Стопорное кольцо", price:24, uses:"" },
+  { id:"vtulka_perehod", cat:CATEGORIES.weapon, name:"Переходная втулка ствола", price:24, uses:"" },
+  { id:"gajka_stvol", cat:CATEGORIES.weapon, name:"Ствольная гайка", price:15, uses:"" },
+  { id:"podschechnik", cat:CATEGORIES.weapon, name:"Кожаный подщечник", price:500, uses:"" },
 
-  // ---------- Патроны ----------
-  { id:"gilza_pistolet", cat:"Патроны", name:"Пистолетная гильза", price:2, uses:"" },
-  { id:"gilza_vintovka", cat:"Патроны", name:"Винтовочная гильза", price:2, uses:"" },
-  { id:"gilza_drobovik", cat:"Патроны", name:"Гильза ружья", price:2, uses:"" },
-  { id:"gilza_sniper", cat:"Патроны", name:"Гильза снайперки", price:3, uses:"" },
-  { id:"kapsul_vosh", cat:"Патроны", name:"Капсюль", price:2, uses:"" },
-  { id:"poroh_banka", cat:"Патроны", name:"Банка пороха", price:2, uses:"" },
-  { id:"drob_svinets", cat:"Патроны", name:"Мешочек с дробью", price:3, uses:"" },
-  { id:"pulya_obolochka", cat:"Патроны", name:"Оболочечная пуля", price:5, uses:"" },
-  { id:"pulya_serdtsevin", cat:"Патроны", name:"Стальной сердечник пули", price:4, uses:"" },
-  { id:"pizh_voylok", cat:"Патроны", name:"Войлочный пыж", price:3, uses:"" },
-  { id:"vesy_naveska", cat:"Патроны", name:"Аптекарские весы", price:12, uses:"" },
-  { id:"tsement_pulya", cat:"Патроны", name:"Форма для отливки пуль", price:24, uses:"" },
-  { id:"splav_svinets", cat:"Патроны", name:"Слиток грязного свинца", price:10, uses:"" },
-  { id:"poroh_stary", cat:"Патроны", name:"Слежавшийся порох", price:10, uses:"" },
-  { id:"kontejner_drob", cat:"Патроны", name:"Пластиковый контейнер для дроби", price:5, uses:"" },
-  { id:"korobka_patrony", cat:"Патроны", name:"Пустая картонная пачка", price:3, uses:"" },
-  { id:"pulya_expansiv", cat:"Патроны", name:"Деформированная пуля", price:2, uses:"" },
-  { id:"pulya_trassir", cat:"Патроны", name:"Наконечник трассирующей пули", price:10, uses:"" },
-  { id:"sero_paket", cat:"Патроны", name:"Пакет серы", price:15, uses:"" },
-  { id:"selitra_paket", cat:"Патроны", name:"Пакет селитры", price:15, uses:"" },
-  { id:"ugol_aktiv", cat:"Патроны", name:"Уголь для пороховой смеси", price:10, uses:"" },
-  { id:"svinets_kartech", cat:"Патроны", name:"Картечь", price:5, uses:"" },
-  { id:"trubka_gilza", cat:"Патроны", name:"Пластиковая трубка гильзы", price:50, uses:"" },
+  // ---------- Боеприпасы ----------
+  { id:"gilza_pistolet", cat:CATEGORIES.ammo, name:"Пистолетная гильза", price:2, uses:"" },
+  { id:"gilza_vintovka", cat:CATEGORIES.ammo, name:"Винтовочная гильза", price:2, uses:"" },
+  { id:"gilza_drobovik", cat:CATEGORIES.ammo, name:"Гильза ружья", price:2, uses:"" },
+  { id:"gilza_sniper", cat:CATEGORIES.ammo, name:"Гильза снайперки", price:3, uses:"" },
+  { id:"kapsul_vosh", cat:CATEGORIES.ammo, name:"Капсюль", price:2, uses:"" },
+  { id:"poroh_banka", cat:CATEGORIES.ammo, name:"Банка пороха", price:2, uses:"" },
+  { id:"drob_svinets", cat:CATEGORIES.ammo, name:"Мешочек с дробью", price:3, uses:"" },
+  { id:"pulya_obolochka", cat:CATEGORIES.ammo, name:"Оболочечная пуля", price:5, uses:"" },
+  { id:"pulya_serdtsevin", cat:CATEGORIES.ammo, name:"Стальной сердечник пули", price:4, uses:"" },
+  { id:"pizh_voylok", cat:CATEGORIES.ammo, name:"Войлочный пыж", price:3, uses:"" },
+  { id:"vesy_naveska", cat:CATEGORIES.ammo, name:"Аптекарские весы", price:12, uses:"" },
+  { id:"tsement_pulya", cat:CATEGORIES.ammo, name:"Форма для отливки пуль", price:24, uses:"" },
+  { id:"splav_svinets", cat:CATEGORIES.ammo, name:"Слиток грязного свинца", price:10, uses:"" },
+  { id:"poroh_stary", cat:CATEGORIES.ammo, name:"Слежавшийся порох", price:10, uses:"" },
+  { id:"kontejner_drob", cat:CATEGORIES.ammo, name:"Пластиковый контейнер для дроби", price:5, uses:"" },
+  { id:"korobka_patrony", cat:CATEGORIES.ammo, name:"Пустая картонная пачка", price:3, uses:"" },
+  { id:"pulya_expansiv", cat:CATEGORIES.ammo, name:"Деформированная пуля", price:2, uses:"" },
+  { id:"pulya_trassir", cat:CATEGORIES.ammo, name:"Наконечник трассирующей пули", price:10, uses:"" },
+  { id:"sero_paket", cat:CATEGORIES.ammo, name:"Пакет серы", price:15, uses:"" },
+  { id:"selitra_paket", cat:CATEGORIES.ammo, name:"Пакет селитры", price:15, uses:"" },
+  { id:"ugol_aktiv", cat:CATEGORIES.ammo, name:"Уголь для пороховой смеси", price:10, uses:"" },
+  { id:"svinets_kartech", cat:CATEGORIES.ammo, name:"Картечь", price:5, uses:"" },
+  { id:"trubka_gilza", cat:CATEGORIES.ammo, name:"Пластиковая трубка гильзы", price:50, uses:"" },
 
   // ---------- Электроника ----------
-  { id:"plata_tv", cat:"Электроника", name:"Плата от старого телевизора", price:3, uses:"Шпион, Тень" },
-  { id:"kondensator", cat:"Электроника", name:"Конденсатор", price:6, uses:"" },
-  { id:"mednaya_obmotka", cat:"Электроника", name:"Медная обмотка", price:9, uses:"" },
-  { id:"transformator", cat:"Электроника", name:"Трансформатор", price:15, uses:"" },
-  { id:"trubka_med", cat:"Электроника", name:"Медная трубка", price:10, uses:"" },
-  { id:"provodka_zhgut", cat:"Электроника", name:"Жгут проводов", price:2, uses:"Бастион" },
-  { id:"rezinovy_uplot", cat:"Электроника", name:"Резиновый уплотнитель", price:80, uses:"Химера, ОЗК, Дезертир" },
-  { id:"shesternya_stal", cat:"Электроника", name:"Стальная шестерня", price:12, uses:"Бастион" },
-  { id:"podshipnik_rzhavy", cat:"Электроника", name:"Ржавый подшипник", price:3, uses:"Бастион" },
-  { id:"radiolampa", cat:"Электроника", name:"Радиолампа", price:2, uses:"" },
-  { id:"dinamik_maly", cat:"Электроника", name:"Маленький динамик", price:4, uses:"" },
-  { id:"batareyka_kron", cat:"Электроника", name:"Севшая батарейка", price:5, uses:"Шпион, Тень" },
-  { id:"displej_nokia", cat:"Электроника", name:"Разбитый дисплей", price:2, uses:"" },
-  { id:"knopka_tumbler", cat:"Электроника", name:"Тумблер", price:3, uses:"" },
-  { id:"magnit_ferrit", cat:"Электроника", name:"Ферритовый магнит", price:1, uses:"" },
-  { id:"motorchik", cat:"Электроника", name:"Моторчик", price:15, uses:"Бастион" },
-  { id:"lampa_nakal", cat:"Электроника", name:"Лампочка", price:9, uses:"" },
-  { id:"rele_povorot", cat:"Электроника", name:"Реле поворотов", price:10, uses:"" },
-  { id:"rezistor_peremen", cat:"Электроника", name:"Резистор", price:3, uses:"" },
-  { id:"provod_katushka", cat:"Электроника", name:"Катушка провода", price:3, uses:"" },
-  { id:"akkum_vzdut", cat:"Электроника", name:"Вздутый аккумулятор", price:6, uses:"" },
-  { id:"antena_teleskop", cat:"Электроника", name:"Телескопическая антенна", price:10, uses:"" },
-  { id:"diod_most", cat:"Электроника", name:"Диодный мост", price:7, uses:"" },
-  { id:"plashka_pamyat", cat:"Электроника", name:"Планка ОЗУ", price:20, uses:"" },
-  { id:"radiator_alyum", cat:"Электроника", name:"Алюминиевый радиатор", price:12, uses:"" },
-  { id:"plashka_mikro", cat:"Электроника", name:"Микросхема", price:4, uses:"" },
-  { id:"piezo_element", cat:"Электроника", name:"Пьеза", price:30, uses:"" },
-  { id:"katushka_zazhig", cat:"Электроника", name:"Катушка зажигания", price:24, uses:"" },
+  { id:"plata_tv", cat:CATEGORIES.electro, name:"Плата от старого телевизора", price:3, uses:"Шпион, Тень" },
+  { id:"kondensator", cat:CATEGORIES.electro, name:"Конденсатор", price:6, uses:"" },
+  { id:"mednaya_obmotka", cat:CATEGORIES.electro, name:"Медная обмотка", price:9, uses:"" },
+  { id:"transformator", cat:CATEGORIES.electro, name:"Трансформатор", price:15, uses:"" },
+  { id:"trubka_med", cat:CATEGORIES.electro, name:"Медная трубка", price:10, uses:"" },
+  { id:"provodka_zhgut", cat:CATEGORIES.electro, name:"Жгут проводов", price:2, uses:"Бастион" },
+  { id:"rezinovy_uplot", cat:CATEGORIES.electro, name:"Резиновый уплотнитель", price:80, uses:"Химера, ОЗК, Дезертир" },
+  { id:"shesternya_stal", cat:CATEGORIES.electro, name:"Стальная шестерня", price:12, uses:"Бастион" },
+  { id:"podshipnik_rzhavy", cat:CATEGORIES.electro, name:"Ржавый подшипник", price:3, uses:"Бастион" },
+  { id:"radiolampa", cat:CATEGORIES.electro, name:"Радиолампа", price:2, uses:"" },
+  { id:"dinamik_maly", cat:CATEGORIES.electro, name:"Маленький динамик", price:4, uses:"" },
+  { id:"batareyka_kron", cat:CATEGORIES.electro, name:"Севшая батарейка", price:5, uses:"Шпион, Тень" },
+  { id:"displej_nokia", cat:CATEGORIES.electro, name:"Разбитый дисплей", price:2, uses:"" },
+  { id:"knopka_tumbler", cat:CATEGORIES.electro, name:"Тумблер", price:3, uses:"" },
+  { id:"magnit_ferrit", cat:CATEGORIES.electro, name:"Ферритовый магнит", price:1, uses:"" },
+  { id:"motorchik", cat:CATEGORIES.electro, name:"Моторчик", price:15, uses:"Бастион" },
+  { id:"lampa_nakal", cat:CATEGORIES.electro, name:"Лампочка", price:9, uses:"" },
+  { id:"rele_povorot", cat:CATEGORIES.electro, name:"Реле поворотов", price:10, uses:"" },
+  { id:"rezistor_peremen", cat:CATEGORIES.electro, name:"Резистор", price:3, uses:"" },
+  { id:"provod_katushka", cat:CATEGORIES.electro, name:"Катушка провода", price:3, uses:"" },
+  { id:"akkum_vzdut", cat:CATEGORIES.electro, name:"Вздутый аккумулятор", price:6, uses:"" },
+  { id:"antena_teleskop", cat:CATEGORIES.electro, name:"Телескопическая антенна", price:10, uses:"" },
+  { id:"diod_most", cat:CATEGORIES.electro, name:"Диодный мост", price:7, uses:"" },
+  { id:"plashka_pamyat", cat:CATEGORIES.electro, name:"Планка ОЗУ", price:20, uses:"" },
+  { id:"radiator_alyum", cat:CATEGORIES.electro, name:"Алюминиевый радиатор", price:12, uses:"" },
+  { id:"plashka_mikro", cat:CATEGORIES.electro, name:"Микросхема", price:4, uses:"" },
+  { id:"piezo_element", cat:CATEGORIES.electro, name:"Пьеза", price:30, uses:"" },
+  { id:"katushka_zazhig", cat:CATEGORIES.electro, name:"Катушка зажигания", price:24, uses:"" },
 
-  // ---------- Мелочь ----------
-  { id:"gvozd_gnuty", cat:"Мелочь", name:"Гнутый гвоздь", price:1, uses:"" },
-  { id:"bolt_gaika", cat:"Мелочь", name:"Набор болтов и гаек", price:4, uses:"" },
-  { id:"izolenta_sinyaya", cat:"Мелочь", name:"Остатки изоленты", price:5, uses:"" },
-  { id:"kley_moment", cat:"Мелочь", name:"Засохший тюбик клея", price:22, uses:"" },
-  { id:"tsep_metall", cat:"Мелочь", name:"Обрывок цепи", price:1, uses:"" },
-  { id:"armatura_kusok", cat:"Мелочь", name:"Кусок арматуры", price:15, uses:"" },
-  { id:"zhest_list", cat:"Мелочь", name:"Лист жести", price:5, uses:"" },
-  { id:"kozha_obrezki", cat:"Мелочь", name:"Обрезки грубой кожи", price:45, uses:"Почти все брони" },
-  { id:"tkanevaya_vetosh", cat:"Мелочь", name:"Промасленная ветошь", price:7, uses:"Шелест" },
-  { id:"banka_konservy", cat:"Мелочь", name:"Пустая консервная банка", price:1, uses:"" },
-  { id:"gazeta_soviet", cat:"Мелочь", name:"Обрывок газеты", price:3, uses:"" },
-  { id:"chasy_mehanika", cat:"Мелочь", name:"Сломанные наручные часы", price:1, uses:"" },
-  { id:"zazhigalka_empty", cat:"Мелочь", name:"Пустая зажигалка", price:1, uses:"" },
-  { id:"klyuch_rzhavy", cat:"Мелочь", name:"Ржавый ключ", price:2, uses:"" },
-  { id:"zerkalo_oskolok", cat:"Мелочь", name:"Осколок зеркала", price:3, uses:"Шпион" },
-  { id:"flaga_alyum", cat:"Мелочь", name:"Помятая фляга", price:1, uses:"" },
-  { id:"kanifol", cat:"Мелочь", name:"Баночка канифоли", price:12, uses:"" },
-  { id:"pripoy_olovo", cat:"Мелочь", name:"Капля припоя", price:23, uses:"" },
-  { id:"lozhka_alyum", cat:"Мелочь", name:"Гнутая ложка", price:1, uses:"" },
-  { id:"vilka_nerzh", cat:"Мелочь", name:"Стальная вилка", price:1, uses:"" },
-  { id:"ochi_broken", cat:"Мелочь", name:"Треснувшие очки", price:1, uses:"" },
-  { id:"portsigar_med", cat:"Мелочь", name:"Медный портсигар", price:2, uses:"" },
-  { id:"rascheska_plast", cat:"Мелочь", name:"Сломанная расческа", price:3, uses:"" },
-  { id:"britva_opas", cat:"Мелочь", name:"Опасная бритва", price:2, uses:"" },
-  { id:"moneta_sssr", cat:"Мелочь", name:"Затертая монета", price:2, uses:"" },
-  { id:"foto_kartochka", cat:"Мелочь", name:"Выцветшее фото", price:1, uses:"" },
-  { id:"vilochka_rozet", cat:"Мелочь", name:"Штепсельная вилка", price:1, uses:"" },
-  { id:"zamok_navesnoy", cat:"Мелочь", name:"Навесной замок", price:6, uses:"" },
-  { id:"ampula_steklo", cat:"Мелочь", name:"Пустая ампула", price:3, uses:"" },
-  { id:"bint_gryazny", cat:"Мелочь", name:"Использованный бинт", price:6, uses:"" },
-  { id:"probka_rezina", cat:"Мелочь", name:"Резиновая аптечная пробка", price:3, uses:"ОЗК, Химера, Дезертир" },
-  { id:"shprits_stary", cat:"Мелочь", name:"Стеклянный шприц", price:5, uses:"" },
-  { id:"setka_rabitsa", cat:"Мелочь", name:"Клочок сетки-рабицы", price:2, uses:"" },
-  { id:"izolyat_keram", cat:"Мелочь", name:"Керамический изолятор", price:3, uses:"" },
-  { id:"shlak_metall", cat:"Мелочь", name:"Металлический шлак", price:5, uses:"" },
-  { id:"setka_filtr", cat:"Мелочь", name:"Сетка бензонасоса", price:30, uses:"" },
-  { id:"uplotnitel_grm", cat:"Мелочь", name:"Резиновая прокладка", price:30, uses:"" },
+  // ---------- Хлам ----------
+  { id:"gvozd_gnuty", cat:CATEGORIES.junk, name:"Гнутый гвоздь", price:1, uses:"" },
+  { id:"bolt_gaika", cat:CATEGORIES.junk, name:"Набор болтов и гаек", price:4, uses:"" },
+  { id:"izolenta_sinyaya", cat:CATEGORIES.junk, name:"Остатки изоленты", price:5, uses:"" },
+  { id:"kley_moment", cat:CATEGORIES.junk, name:"Засохший тюбик клея", price:22, uses:"" },
+  { id:"tsep_metall", cat:CATEGORIES.junk, name:"Обрывок цепи", price:1, uses:"" },
+  { id:"armatura_kusok", cat:CATEGORIES.junk, name:"Кусок арматуры", price:15, uses:"" },
+  { id:"zhest_list", cat:CATEGORIES.junk, name:"Лист жести", price:5, uses:"" },
+  { id:"kozha_obrezki", cat:CATEGORIES.junk, name:"Обрезки грубой кожи", price:45, uses:"Почти все брони" },
+  { id:"tkanevaya_vetosh", cat:CATEGORIES.junk, name:"Промасленная ветошь", price:7, uses:"Шелест" },
+  { id:"banka_konservy", cat:CATEGORIES.junk, name:"Пустая консервная банка", price:1, uses:"" },
+  { id:"gazeta_soviet", cat:CATEGORIES.junk, name:"Обрывок газеты", price:3, uses:"" },
+  { id:"chasy_mehanika", cat:CATEGORIES.junk, name:"Сломанные наручные часы", price:1, uses:"" },
+  { id:"zazhigalka_empty", cat:CATEGORIES.junk, name:"Пустая зажигалка", price:1, uses:"" },
+  { id:"klyuch_rzhavy", cat:CATEGORIES.junk, name:"Ржавый ключ", price:2, uses:"" },
+  { id:"zerkalo_oskolok", cat:CATEGORIES.junk, name:"Осколок зеркала", price:3, uses:"Шпион" },
+  { id:"flaga_alyum", cat:CATEGORIES.junk, name:"Помятая фляга", price:1, uses:"" },
+  { id:"kanifol", cat:CATEGORIES.junk, name:"Баночка канифоли", price:12, uses:"" },
+  { id:"pripoy_olovo", cat:CATEGORIES.junk, name:"Капля припоя", price:23, uses:"" },
+  { id:"lozhka_alyum", cat:CATEGORIES.junk, name:"Гнутая ложка", price:1, uses:"" },
+  { id:"vilka_nerzh", cat:CATEGORIES.junk, name:"Стальная вилка", price:1, uses:"" },
+  { id:"ochi_broken", cat:CATEGORIES.junk, name:"Треснувшие очки", price:1, uses:"" },
+  { id:"portsigar_med", cat:CATEGORIES.junk, name:"Медный портсигар", price:2, uses:"" },
+  { id:"rascheska_plast", cat:CATEGORIES.junk, name:"Сломанная расческа", price:3, uses:"" },
+  { id:"britva_opas", cat:CATEGORIES.junk, name:"Опасная бритва", price:2, uses:"" },
+  { id:"moneta_sssr", cat:CATEGORIES.junk, name:"Затертая монета", price:2, uses:"" },
+  { id:"foto_kartochka", cat:CATEGORIES.junk, name:"Выцветшее фото", price:1, uses:"" },
+  { id:"vilochka_rozet", cat:CATEGORIES.junk, name:"Штепсельная вилка", price:1, uses:"" },
+  { id:"zamok_navesnoy", cat:CATEGORIES.junk, name:"Навесной замок", price:6, uses:"" },
+  { id:"ampula_steklo", cat:CATEGORIES.junk, name:"Пустая ампула", price:3, uses:"" },
+  { id:"bint_gryazny", cat:CATEGORIES.junk, name:"Использованный бинт", price:6, uses:"" },
+  { id:"probka_rezina", cat:CATEGORIES.junk, name:"Резиновая аптечная пробка", price:3, uses:"ОЗК, Химера, Дезертир" },
+  { id:"shprits_stary", cat:CATEGORIES.junk, name:"Стеклянный шприц", price:5, uses:"" },
+  { id:"setka_rabitsa", cat:CATEGORIES.junk, name:"Клочок сетки-рабицы", price:2, uses:"" },
+  { id:"izolyat_keram", cat:CATEGORIES.junk, name:"Керамический изолятор", price:3, uses:"" },
+  { id:"shlak_metall", cat:CATEGORIES.junk, name:"Металлический шлак", price:5, uses:"" },
+  { id:"setka_filtr", cat:CATEGORIES.junk, name:"Сетка бензонасоса", price:30, uses:"" },
+  { id:"uplotnitel_grm", cat:CATEGORIES.junk, name:"Резиновая прокладка", price:30, uses:"" },
 
   // ---------- Инструменты ----------
-  { id:"klyuch_rozhkovy", cat:"Инструменты", name:"Рожковый ключ", price:19, uses:"" },
-  { id:"otvertka_minus", cat:"Инструменты", name:"Плоская отвертка", price:14, uses:"" },
-  { id:"napilnik_krug", cat:"Инструменты", name:"Круглый напильник", price:19, uses:"" },
-  { id:"polotno_nozhov", cat:"Инструменты", name:"Полотно ножовки", price:19, uses:"" },
-  { id:"ploskogubtsy", cat:"Инструменты", name:"Ржавые пассатижи", price:14, uses:"" },
-  { id:"sverlo_metall", cat:"Инструменты", name:"Сломанное сверло", price:14, uses:"" },
+  { id:"klyuch_rozhkovy", cat:CATEGORIES.tools, name:"Рожковый ключ", price:19, uses:"" },
+  { id:"otvertka_minus", cat:CATEGORIES.tools, name:"Плоская отвертка", price:14, uses:"" },
+  { id:"napilnik_krug", cat:CATEGORIES.tools, name:"Круглый напильник", price:19, uses:"" },
+  { id:"polotno_nozhov", cat:CATEGORIES.tools, name:"Полотно ножовки", price:19, uses:"" },
+  { id:"ploskogubtsy", cat:CATEGORIES.tools, name:"Ржавые пассатижи", price:14, uses:"" },
+  { id:"sverlo_metall", cat:CATEGORIES.tools, name:"Сломанное сверло", price:14, uses:"" },
 
-  // ---------- Автомобиль ----------
-  { id:"kolenval", cat:"Автомобиль", name:"Коленвал", price:72, uses:"" },
-  { id:"raspredval", cat:"Автомобиль", name:"Распредвал", price:72, uses:"" },
-  { id:"shchip_maslo", cat:"Автомобиль", name:"Масляный щуп", price:72, uses:"" },
-  { id:"forsunka", cat:"Автомобиль", name:"Форсунка", price:72, uses:"" },
-  { id:"rampa_topl", cat:"Автомобиль", name:"Топливная рампа", price:72, uses:"" },
-  { id:"regulyator_dav", cat:"Автомобиль", name:"Регулятор давления", price:72, uses:"" },
-  { id:"tros_stsepl", cat:"Автомобиль", name:"Трос сцепления", price:66, uses:"" },
-  { id:"nabaldash_kpp", cat:"Автомобиль", name:"Ручка КПП", price:72, uses:"" },
-  { id:"pnevmosignal", cat:"Автомобиль", name:"Сигнал", price:72, uses:"" },
-  { id:"veslo", cat:"Автомобиль", name:"Стеклоподъемник", price:72, uses:"" },
-  { id:"shina", cat:"Автомобиль", name:"Шина", price:66, uses:"" },
-  { id:"spidometr", cat:"Автомобиль", name:"Спидометр", price:72, uses:"" },
-  { id:"glushitel", cat:"Автомобиль", name:"Глушитель", price:72, uses:"" },
-  { id:"zaslonka", cat:"Автомобиль", name:"Дроссель", price:72, uses:"" },
-  { id:"ruly", cat:"Автомобиль", name:"Руль", price:72, uses:"" },
-  { id:"porshen_dv", cat:"Автомобиль", name:"Поршень", price:72, uses:"" },
-  { id:"mahovik", cat:"Автомобиль", name:"Маховик", price:72, uses:"" },
-  { id:"reduktor", cat:"Автомобиль", name:"Редуктор", price:72, uses:"" },
-  { id:"kolodka", cat:"Автомобиль", name:"Тормозная колодка", price:66, uses:"" },
-  { id:"opora_dv", cat:"Автомобиль", name:"Опора двигателя", price:72, uses:"" },
-  { id:"reika", cat:"Автомобиль", name:"Рулевая рейка", price:72, uses:"" },
-  { id:"amort", cat:"Автомобиль", name:"Амортизатор", price:66, uses:"" },
-  { id:"stabilizator", cat:"Автомобиль", name:"Стабилизатор", price:72, uses:"" },
-  { id:"fara", cat:"Автомобиль", name:"Фара", price:15, uses:"" },
+  // ---------- Автозапчасти ----------
+  { id:"kolenval", cat:CATEGORIES.auto, name:"Коленвал", price:72, uses:"" },
+  { id:"raspredval", cat:CATEGORIES.auto, name:"Распредвал", price:72, uses:"" },
+  { id:"shchip_maslo", cat:CATEGORIES.auto, name:"Масляный щуп", price:72, uses:"" },
+  { id:"forsunka", cat:CATEGORIES.auto, name:"Форсунка", price:72, uses:"" },
+  { id:"rampa_topl", cat:CATEGORIES.auto, name:"Топливная рампа", price:72, uses:"" },
+  { id:"regulyator_dav", cat:CATEGORIES.auto, name:"Регулятор давления", price:72, uses:"" },
+  { id:"tros_stsepl", cat:CATEGORIES.auto, name:"Трос сцепления", price:66, uses:"" },
+  { id:"nabaldash_kpp", cat:CATEGORIES.auto, name:"Ручка КПП", price:72, uses:"" },
+  { id:"pnevmosignal", cat:CATEGORIES.auto, name:"Сигнал", price:72, uses:"" },
+  { id:"veslo", cat:CATEGORIES.auto, name:"Стеклоподъемник", price:72, uses:"" },
+  { id:"shina", cat:CATEGORIES.auto, name:"Шина", price:66, uses:"" },
+  { id:"spidometr", cat:CATEGORIES.auto, name:"Спидометр", price:72, uses:"" },
+  { id:"glushitel", cat:CATEGORIES.auto, name:"Глушитель", price:72, uses:"" },
+  { id:"zaslonka", cat:CATEGORIES.auto, name:"Дроссель", price:72, uses:"" },
+  { id:"ruly", cat:CATEGORIES.auto, name:"Руль", price:72, uses:"" },
+  { id:"porshen_dv", cat:CATEGORIES.auto, name:"Поршень", price:72, uses:"" },
+  { id:"mahovik", cat:CATEGORIES.auto, name:"Маховик", price:72, uses:"" },
+  { id:"reduktor", cat:CATEGORIES.auto, name:"Редуктор", price:72, uses:"" },
+  { id:"kolodka", cat:CATEGORIES.auto, name:"Тормозная колодка", price:66, uses:"" },
+  { id:"opora_dv", cat:CATEGORIES.auto, name:"Опора двигателя", price:72, uses:"" },
+  { id:"reika", cat:CATEGORIES.auto, name:"Рулевая рейка", price:72, uses:"" },
+  { id:"amort", cat:CATEGORIES.auto, name:"Амортизатор", price:66, uses:"" },
+  { id:"stabilizator", cat:CATEGORIES.auto, name:"Стабилизатор", price:72, uses:"" },
+  { id:"fara", cat:CATEGORIES.auto, name:"Фара", price:15, uses:"" },
 
   // ---------- Броня ----------
-  { id:"tkan_kevlar", cat:"Броня", name:"Кевларовая ткань", price:20, uses:"Почти все брони" },
-  { id:"bronepaket_aramid", cat:"Броня", name:"Арамидный мягкий бронепакет", price:150, uses:"" },
-  { id:"kura_brezent", cat:"Броня", name:"Отрез плотного брезента", price:15, uses:"" },
-  { id:"kozha_tolstaya", cat:"Броня", name:"Толстая воловья кожа", price:30, uses:"" },
-  { id:"nitki_nylon", cat:"Броня", name:"Нейлоновые нитки", price:10, uses:"Почти все брони" },
-  { id:"remen_stropa", cat:"Броня", name:"Нейлоновая стропа", price:25, uses:"Почти все брони" },
-  { id:"fasteks_zastezhka", cat:"Броня", name:"Застежка-фастекс", price:24, uses:"" },
-  { id:"lipuchka_velcro", cat:"Броня", name:"Лента-липучка", price:24, uses:"" },
-  { id:"podkladka_mesh", cat:"Броня", name:"Вентилируемая 3D-сетка", price:24, uses:"" },
-  { id:"molniya_usilennaya", cat:"Броня", name:"Усиленная тракторная молния", price:24, uses:"" },
-  { id:"karabin_stal", cat:"Броня", name:"Стальной карабин", price:24, uses:"" },
-  { id:"koltso_d_obrazn", cat:"Броня", name:"D-образное кольцо", price:24, uses:"" },
-  { id:"shnur_parakord", cat:"Броня", name:"Моток паракорда", price:8, uses:"" },
-  { id:"zaklepka_stal", cat:"Броня", name:"Стальная заклепка", price:4, uses:"Attacker, Defender, Feldgrau, Krechet, Medical, Sniper" },
-  { id:"amort_vstavka", cat:"Броня", name:"Демпферная вставка (КАП)", price:2000, uses:"Бастион" },
-  { id:"plastina_stal", cat:"Броня", name:"Стальная бронеплита", price:2000, uses:"Защитник" },
-  { id:"plastina_keramika", cat:"Броня", name:"Керамическая бронеплита", price:24, uses:"" },
-  { id:"plastina_titan", cat:"Броня", name:"Титановая бронеплита", price:300, uses:"Бастион" },
-  { id:"plastina_polietilen", cat:"Броня", name:"Бронеплита СВМПЭ", price:2000, uses:"Тень" },
-  { id:"rebro_zhestkosti", cat:"Броня", name:"Металлическое ребро жесткости", price:30, uses:"" },
-  { id:"kolchuga_polotno", cat:"Броня", name:"Фрагмент стальной кольчуги", price:120, uses:"Cifra, Feldgrau, Himera, Krechet, Priboy, Ratnik, Scout, Ten, Attacker" },
-  { id:"kolchuga_titan", cat:"Броня", name:"Фрагмент титановой кольчуги", price:35, uses:"Attacker, Bastion, Cifra, Defender, Himera, Krechet, Priboy, Ratnik, Ten" },
-  { id:"kompozit_smola", cat:"Броня", name:"Банка эпоксидной смолы", price:24, uses:"" },
-  { id:"steklotkan_rulon", cat:"Броня", name:"Рулон стеклоткани", price:6, uses:"" },
-  { id:"amortizator_eva", cat:"Броня", name:"Лист ЭВА-пены", price:30, uses:"" },
-  { id:"chehol_bronezhilet", cat:"Броня", name:"Пустой чехол бронежилета", price:100, uses:"Attacker, Himera, Priboy, Ratnik" },
-  { id:"razgruzka_osnova", cat:"Броня", name:"Основа нагрудника", price:25, uses:"Cifra" },
-  { id:"poyas_taktich", cat:"Броня", name:"Бандаж тактического пояса", price:10, uses:"" },
-  { id:"podsumok_maly", cat:"Броня", name:"Универсальный малый подсумок", price:30, uses:"Attacker, Krechet, Priboy, Ten" },
-  { id:"zashchita_pah", cat:"Броня", name:"Паховый модуль", price:50, uses:"Krechet" },
-  { id:"zashchita_sheya", cat:"Броня", name:"Кевларовый воротник", price:30, uses:"" },
-  { id:"nakladka_plecho", cat:"Броня", name:"Плечевая накладка", price:30, uses:"" },
-  { id:"korset_spina", cat:"Броня", name:"Разгрузочный корсет", price:30, uses:"" },
-  { id:"nakolennik_chashka", cat:"Броня", name:"Пластиковая чашечка наколенника", price:30, uses:"" },
-  { id:"nalokotnik_chashka", cat:"Броня", name:"Пластиковая чашечка налокотника", price:30, uses:"" },
-  { id:"zashchita_bedro", cat:"Броня", name:"Набедренная платформа", price:30, uses:"" },
-  { id:"shitok_predplechye", cat:"Броня", name:"Бронещиток на предплечье", price:30, uses:"" },
-  { id:"shitok_golen", cat:"Броня", name:"Бронещиток на голень", price:150, uses:"Бастион" },
-  { id:"kaska_kupol", cat:"Броня", name:"Стальной купол шлема", price:30, uses:"" },
-  { id:"shlem_kevlar_kupol", cat:"Броня", name:"Кевларовая сфера шлема", price:30, uses:"" },
-  { id:"podves_shlem", cat:"Броня", name:"Подтулейное устройство", price:30, uses:"" },
-  { id:"zabralo_polikarbonat", cat:"Броня", name:"Поликарбонатное забрало", price:175, uses:"Бастион" },
-  { id:"kreplenie_pnv", cat:"Броня", name:"Шрауд (крепление) для ПНВ", price:30, uses:"" },
-  { id:"pylezashchita_ochki", cat:"Броня", name:"Тактические очки", price:24, uses:"" },
-  { id:"maska_neopren", cat:"Броня", name:"Неопреновая маска", price:24, uses:"" },
-  { id:"perchatki_osnova", cat:"Броня", name:"Основа тактических перчаток", price:24, uses:"" },
-  { id:"kastet_vstavka", cat:"Броня", name:"Карбоновая защита костяшек", price:30, uses:"" },
-  { id:"podoshva_vibram", cat:"Броня", name:"Усиленная подошва для берцев", price:24, uses:"" },
-  { id:"berets_osnova", cat:"Броня", name:"Кожаная заготовка ботинка", price:24, uses:"" },
-  { id:"shnurki_kevlar", cat:"Броня", name:"Кевларовые огнеупорные шнурки", price:24, uses:"" },
+  { id:"tkan_kevlar", cat:CATEGORIES.armor, name:"Кевларовая ткань", price:20, uses:"Почти все брони" },
+  { id:"bronepaket_aramid", cat:CATEGORIES.armor, name:"Арамидный мягкий бронепакет", price:150, uses:"" },
+  { id:"kura_brezent", cat:CATEGORIES.armor, name:"Отрез плотного брезента", price:15, uses:"" },
+  { id:"kozha_tolstaya", cat:CATEGORIES.armor, name:"Толстая воловья кожа", price:30, uses:"" },
+  { id:"nitki_nylon", cat:CATEGORIES.armor, name:"Нейлоновые нитки", price:10, uses:"Почти все брони" },
+  { id:"remen_stropa", cat:CATEGORIES.armor, name:"Нейлоновая стропа", price:25, uses:"Почти все брони" },
+  { id:"fasteks_zastezhka", cat:CATEGORIES.armor, name:"Застежка-фастекс", price:24, uses:"" },
+  { id:"lipuchka_velcro", cat:CATEGORIES.armor, name:"Лента-липучка", price:24, uses:"" },
+  { id:"podkladka_mesh", cat:CATEGORIES.armor, name:"Вентилируемая 3D-сетка", price:24, uses:"" },
+  { id:"molniya_usilennaya", cat:CATEGORIES.armor, name:"Усиленная тракторная молния", price:24, uses:"" },
+  { id:"karabin_stal", cat:CATEGORIES.armor, name:"Стальной карабин", price:24, uses:"" },
+  { id:"koltso_d_obrazn", cat:CATEGORIES.armor, name:"D-образное кольцо", price:24, uses:"" },
+  { id:"shnur_parakord", cat:CATEGORIES.armor, name:"Моток паракорда", price:8, uses:"" },
+  { id:"zaklepka_stal", cat:CATEGORIES.armor, name:"Стальная заклепка", price:4, uses:"Attacker, Defender, Feldgrau, Krechet, Medical, Sniper" },
+  { id:"amort_vstavka", cat:CATEGORIES.armor, name:"Демпферная вставка (КАП)", price:2000, uses:"Бастион" },
+  { id:"plastina_stal", cat:CATEGORIES.armor, name:"Стальная бронеплита", price:2000, uses:"Защитник" },
+  { id:"plastina_keramika", cat:CATEGORIES.armor, name:"Керамическая бронеплита", price:24, uses:"" },
+  { id:"plastina_titan", cat:CATEGORIES.armor, name:"Титановая бронеплита", price:300, uses:"Бастион" },
+  { id:"plastina_polietilen", cat:CATEGORIES.armor, name:"Бронеплита СВМПЭ", price:2000, uses:"Тень" },
+  { id:"rebro_zhestkosti", cat:CATEGORIES.armor, name:"Металлическое ребро жесткости", price:30, uses:"" },
+  { id:"kolchuga_polotno", cat:CATEGORIES.armor, name:"Фрагмент стальной кольчуги", price:120, uses:"Cifra, Feldgrau, Himera, Krechet, Priboy, Ratnik, Scout, Ten, Attacker" },
+  { id:"kolchuga_titan", cat:CATEGORIES.armor, name:"Фрагмент титановой кольчуги", price:35, uses:"Attacker, Bastion, Cifra, Defender, Himera, Krechet, Priboy, Ratnik, Ten" },
+  { id:"kompozit_smola", cat:CATEGORIES.armor, name:"Банка эпоксидной смолы", price:24, uses:"" },
+  { id:"steklotkan_rulon", cat:CATEGORIES.armor, name:"Рулон стеклоткани", price:6, uses:"" },
+  { id:"amortizator_eva", cat:CATEGORIES.armor, name:"Лист ЭВА-пены", price:30, uses:"" },
+  { id:"chehol_bronezhilet", cat:CATEGORIES.armor, name:"Пустой чехол бронежилета", price:100, uses:"Attacker, Himera, Priboy, Ratnik" },
+  { id:"razgruzka_osnova", cat:CATEGORIES.armor, name:"Основа нагрудника", price:25, uses:"Cifra" },
+  { id:"poyas_taktich", cat:CATEGORIES.armor, name:"Бандаж тактического пояса", price:10, uses:"" },
+  { id:"podsumok_maly", cat:CATEGORIES.armor, name:"Универсальный малый подсумок", price:30, uses:"Attacker, Krechet, Priboy, Ten" },
+  { id:"zashchita_pah", cat:CATEGORIES.armor, name:"Паховый модуль", price:50, uses:"Krechet" },
+  { id:"zashchita_sheya", cat:CATEGORIES.armor, name:"Кевларовый воротник", price:30, uses:"" },
+  { id:"nakladka_plecho", cat:CATEGORIES.armor, name:"Плечевая накладка", price:30, uses:"" },
+  { id:"korset_spina", cat:CATEGORIES.armor, name:"Разгрузочный корсет", price:30, uses:"" },
+  { id:"nakolennik_chashka", cat:CATEGORIES.armor, name:"Пластиковая чашечка наколенника", price:30, uses:"" },
+  { id:"nalokotnik_chashka", cat:CATEGORIES.armor, name:"Пластиковая чашечка налокотника", price:30, uses:"" },
+  { id:"zashchita_bedro", cat:CATEGORIES.armor, name:"Набедренная платформа", price:30, uses:"" },
+  { id:"shitok_predplechye", cat:CATEGORIES.armor, name:"Бронещиток на предплечье", price:30, uses:"" },
+  { id:"shitok_golen", cat:CATEGORIES.armor, name:"Бронещиток на голень", price:150, uses:"Бастион" },
+  { id:"kaska_kupol", cat:CATEGORIES.armor, name:"Стальной купол шлема", price:30, uses:"" },
+  { id:"shlem_kevlar_kupol", cat:CATEGORIES.armor, name:"Кевларовая сфера шлема", price:30, uses:"" },
+  { id:"podves_shlem", cat:CATEGORIES.armor, name:"Подтулейное устройство", price:30, uses:"" },
+  { id:"zabralo_polikarbonat", cat:CATEGORIES.armor, name:"Поликарбонатное забрало", price:175, uses:"Бастион" },
+  { id:"kreplenie_pnv", cat:CATEGORIES.armor, name:"Шрауд (крепление) для ПНВ", price:30, uses:"" },
+  { id:"pylezashchita_ochki", cat:CATEGORIES.armor, name:"Тактические очки", price:24, uses:"" },
+  { id:"maska_neopren", cat:CATEGORIES.armor, name:"Неопреновая маска", price:24, uses:"" },
+  { id:"perchatki_osnova", cat:CATEGORIES.armor, name:"Основа тактических перчаток", price:24, uses:"" },
+  { id:"kastet_vstavka", cat:CATEGORIES.armor, name:"Карбоновая защита костяшек", price:30, uses:"" },
+  { id:"podoshva_vibram", cat:CATEGORIES.armor, name:"Усиленная подошва для берцев", price:24, uses:"" },
+  { id:"berets_osnova", cat:CATEGORIES.armor, name:"Кожаная заготовка ботинка", price:24, uses:"" },
+  { id:"shnurki_kevlar", cat:CATEGORIES.armor, name:"Кевларовые огнеупорные шнурки", price:24, uses:"" },
 
-  // ---------- Ванилла ----------
-  { id:"iron_ingot", cat:"Ванилла", name:"Железо", price:20, uses:"" },
-  { id:"diamond", cat:"Ванилла", name:"Алмазы", price:50, uses:"" },
-  { id:"copper_ingot", cat:"Ванилла", name:"Медь", price:5, uses:"" },
-  { id:"gold_ingot", cat:"Ванилла", name:"Золото", price:5, uses:"" },
-  { id:"gunpowder", cat:"Ванилла", name:"Порох", price:5, uses:"" },
+  // ---------- Ванильные ресурсы ----------
+  { id:"iron",     cat:CATEGORIES.vanilla, name:"Железо",  price:20, uses:"" },
+  { id:"diamond",  cat:CATEGORIES.vanilla, name:"Алмазы",  price:50, uses:"" },
+  { id:"copper",   cat:CATEGORIES.vanilla, name:"Медь",    price:5,  uses:"" },
+  { id:"gold",     cat:CATEGORIES.vanilla, name:"Золото",  price:5,  uses:"" },
+  { id:"gunpowder",cat:CATEGORIES.vanilla, name:"Порох",   price:5,  uses:"" },
 ];
 
 /* ============================================================
-   2. СОСТОЯНИЕ
+   СОСТОЯНИЕ
    ============================================================ */
 let state = { resources: [], faction: [], players: [] };
 let editMode = false;
@@ -601,7 +644,7 @@ function setStatus(msg, type = "info", autoHide = 0) {
 }
 
 /* ============================================================
-   3. ХРАНИЛИЩЕ
+   ХРАНИЛИЩЕ
    ============================================================ */
 function loadState() {
   try {
@@ -635,7 +678,7 @@ function saveState() {
 loadState();
 
 /* ============================================================
-   4. УТИЛИТЫ
+   УТИЛИТЫ
    ============================================================ */
 function iconPath(id) { return `assets/ittems/textures/item/${id}.png`; }
 function findResource(id) {
@@ -650,7 +693,7 @@ function pluralGayka(n) {
 }
 
 /* ============================================================
-   5. РЕНДЕР КАТАЛОГА
+   РЕНДЕР КАТАЛОГА
    ============================================================ */
 const catalogGrid = document.getElementById("catalogGrid");
 const searchInput = document.getElementById("search");
@@ -712,7 +755,7 @@ categoryFilter.addEventListener("change", renderCatalog);
 sortBy.addEventListener("change", renderCatalog);
 
 /* ============================================================
-   6. РЕНДЕР СКЛАДОВ
+   РЕНДЕР СКЛАДОВ
    ============================================================ */
 function renderStockTable(items, searchQuery, editable, kind, ownerIdx) {
   const rows = items
@@ -766,11 +809,9 @@ function renderStockTable(items, searchQuery, editable, kind, ownerIdx) {
 
 function renderAddBar(kind, ownerIdx, ownerLabel) {
   if (!editMode) return "";
-
   const sortedResources = [...state.resources].sort((a, b) =>
     a.name.localeCompare(b.name, "ru", { sensitivity: "base" })
   );
-
   return `
     <div class="edit-toolbar">
       <select id="addSelect_${kind}_${ownerIdx}">
@@ -899,7 +940,7 @@ searchFaction.addEventListener("input", renderFaction);
 searchPlayers.addEventListener("input", renderPlayers);
 
 /* ============================================================
-   7. МОДАЛЬНОЕ ОКНО РЕСУРСА
+   МОДАЛЬНОЕ ОКНО РЕСУРСА
    ============================================================ */
 function openResourceModal(editId = null) {
   const isEdit = editId !== null;
@@ -916,7 +957,7 @@ function openResourceModal(editId = null) {
       <label>Цена за 1 шт. (гайки)</label>
       <input id="rPrice" type="number" min="0" step="1" value="${r.price}">
       <label>Категория</label>
-      <input id="rCat" type="text" value="${r.cat}" placeholder="Оружие / Патроны / Броня / ...">
+      <input id="rCat" type="text" value="${r.cat}" placeholder="Оружие / Боеприпасы / Броня / ...">
       <label>Подсказка (где используется)</label>
       <input id="rUses" type="text" value="${r.uses}" placeholder="необязательно">
       <div class="modal-error" id="mErr"></div>
@@ -954,7 +995,7 @@ function openResourceModal(editId = null) {
 }
 
 /* ============================================================
-   8. МОДАЛЬНОЕ ОКНО ИГРОКА
+   МОДАЛЬНОЕ ОКНО ИГРОКА
    ============================================================ */
 function openPlayerModal() {
   const backdrop = document.createElement("div");
@@ -990,7 +1031,7 @@ function openPlayerModal() {
 }
 
 /* ============================================================
-   9. ПАРОЛЬ / РЕЖИМ РЕДАКТИРОВАНИЯ
+   ПАРОЛЬ / РЕЖИМ РЕДАКТИРОВАНИЯ
    ============================================================ */
 const editToggle = document.getElementById("editToggle");
 const addResourceBtn = document.getElementById("addResourceBtn");
@@ -1042,7 +1083,7 @@ addResourceBtn.addEventListener("click", () => openResourceModal());
 addPlayerBtn.addEventListener("click", () => openPlayerModal());
 
 /* ============================================================
-   10. ИМПОРТ/ЭКСПОРТ JSON
+   ИМПОРТ/ЭКСПОРТ JSON
    ============================================================ */
 document.getElementById("exportJsonBtn").addEventListener("click", () => {
   const data = JSON.stringify(state, null, 2);
@@ -1082,7 +1123,7 @@ document.getElementById("importBtn").addEventListener("click", () => {
 });
 
 /* ============================================================
-   11. ЭКСПОРТ КАТАЛОГА В PDF (с иконками, по категориям, с печатью)
+   ЭКСПОРТ КАТАЛОГА В PDF
    ============================================================ */
 document.getElementById("exportCatalogPdf").addEventListener("click", async () => {
   const btn = document.getElementById("exportCatalogPdf");
@@ -1096,11 +1137,21 @@ document.getElementById("exportCatalogPdf").addEventListener("click", async () =
 
     setStatus("Загрузка иконок…", "info");
     await preloadIcons(state.resources.map(r => r.id));
-    const sealData = await loadSealDataUrl();
+    const sealPng = await loadSealPng();
     setStatus("Генерация PDF…", "info");
 
     const ICON_SIZE = 6;
     const ROW_HEIGHT = 8;
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const pageWidth = doc.internal.pageSize.getWidth();
+
+    const drawSeal = () => {
+      if (!sealPng) return;
+      const sealSize = 38;
+      try {
+        doc.addImage(sealPng, "PNG", pageWidth - sealSize - 14, pageHeight - sealSize - 10, sealSize, sealSize, undefined, "FAST");
+      } catch (e) { console.warn("Ошибка вставки печати", e); }
+    };
 
     doc.setFontSize(16);
     doc.text("Кооператив — Каталог ресурсов", 14, 18);
@@ -1110,19 +1161,6 @@ document.getElementById("exportCatalogPdf").addEventListener("click", async () =
     doc.setTextColor(0);
 
     let cursorY = 32;
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const pageWidth = doc.internal.pageSize.getWidth();
-
-    // Печать в правом нижнем углу каждой страницы
-    const drawSeal = (pageNum) => {
-      if (!sealData) return;
-      const sealW = 38, sealH = 38;
-      try {
-        doc.addImage(sealData, "SVG", pageWidth - sealW - 14, pageHeight - sealH - 10, sealW, sealH, undefined, "FAST");
-      } catch (e) {
-        try { doc.addImage(sealData, "PNG", pageWidth - sealW - 14, pageHeight - sealH - 10, sealW, sealH); } catch(e2){}
-      }
-    };
 
     const byCat = {};
     state.resources.forEach(r => {
@@ -1139,7 +1177,7 @@ document.getElementById("exportCatalogPdf").addEventListener("click", async () =
       const items = byCat[cat].sort((a, b) => a.name.localeCompare(b.name, "ru"));
 
       if (cursorY + 18 > pageHeight - 15) {
-        drawSeal(doc.internal.getNumberOfPages());
+        drawSeal();
         doc.addPage();
         cursorY = 20;
       }
@@ -1150,9 +1188,8 @@ document.getElementById("exportCatalogPdf").addEventListener("click", async () =
       doc.setTextColor(0);
       cursorY += 4;
 
-      const tableStartY = cursorY;
       doc.autoTable({
-        startY: tableStartY,
+        startY: cursorY,
         head: head,
         body: items.map(r => ["", r.name, `${r.price}`, r.uses || "—"]),
         styles: { font: "Roboto", fontSize: 8, cellPadding: 1.5, minCellHeight: ROW_HEIGHT },
@@ -1182,15 +1219,14 @@ document.getElementById("exportCatalogPdf").addEventListener("click", async () =
           doc.setTextColor(120);
           doc.text(`Страница ${data.pageNumber}`, pageWidth - 20, pageHeight - 8);
           doc.setTextColor(0);
-          drawSeal(data.pageNumber);
+          drawSeal();
         }
       });
 
       cursorY = doc.lastAutoTable.finalY + 6;
     }
 
-    // печать на последней странице, если ещё не рисовали
-    if (cats.length === 0) drawSeal(1);
+    if (cats.length === 0) drawSeal();
 
     doc.save(`koop-catalog-${new Date().toISOString().slice(0,10)}.pdf`);
     setStatus("PDF-каталог сгенерирован", "success", 3000);
@@ -1203,22 +1239,20 @@ document.getElementById("exportCatalogPdf").addEventListener("click", async () =
 });
 
 /* ============================================================
-   12. ЭКСПОРТ КАТАЛОГА В PNG (с печатью)
+   ЭКСПОРТ КАТАЛОГА В PNG
    ============================================================ */
 document.getElementById("exportCatalogPng").addEventListener("click", async () => {
   const btn = document.getElementById("exportCatalogPng");
   btn.disabled = true; btn.textContent = "⏳ Генерация…";
   try {
     await preloadIcons(state.resources.map(r => r.id));
-    const seal = await loadSealDataUrl();
+    const seal = await loadSealPng();
 
-    // Создаём offscreen-контейнер
     const wrap = document.createElement("div");
     wrap.style.cssText = "position:fixed;left:-99999px;top:0;background:#ffffff;color:#111;font-family:'Segoe UI',Roboto,Arial,sans-serif;padding:24px;width:1000px;";
     wrap.innerHTML = renderCatalogPngHtml();
     document.body.appendChild(wrap);
 
-    // Дожидаемся загрузки картинок
     await new Promise(res => setTimeout(res, 400));
 
     const canvas = await html2canvas(wrap, { backgroundColor: "#ffffff", scale: 2, useCORS: true });
@@ -1227,8 +1261,8 @@ document.getElementById("exportCatalogPng").addEventListener("click", async () =
       const sealImg = new Image();
       sealImg.src = seal;
       await new Promise(r => { sealImg.onload = r; sealImg.onerror = r; });
-      const size = Math.min(canvas.width, canvas.height) * 0.18;
-      ctx.globalAlpha = 0.28;
+      const size = Math.min(canvas.width, canvas.height) * 0.20;
+      ctx.globalAlpha = 0.35;
       ctx.drawImage(sealImg, canvas.width - size - 40, canvas.height - size - 40, size, size);
       ctx.globalAlpha = 1;
     }
@@ -1284,7 +1318,7 @@ function renderCatalogPngHtml() {
 }
 
 /* ============================================================
-   13. ЭКСПОРТ КАТАЛОГА В EXCEL
+   ЭКСПОРТ КАТАЛОГА В EXCEL
    ============================================================ */
 document.getElementById("exportCatalogXlsx").addEventListener("click", () => {
   const sorted = [...state.resources].sort((a, b) => a.name.localeCompare(b.name, "ru"));
@@ -1294,7 +1328,7 @@ document.getElementById("exportCatalogXlsx").addEventListener("click", () => {
   ];
   const ws = XLSX.utils.aoa_to_sheet(data);
   ws["!cols"] = [
-    { wch: 5 }, { wch: 22 }, { wch: 35 }, { wch: 16 }, { wch: 20 }, { wch: 40 }
+    { wch: 5 }, { wch: 22 }, { wch: 35 }, { wch: 20 }, { wch: 20 }, { wch: 40 }
   ];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Каталог");
@@ -1303,7 +1337,7 @@ document.getElementById("exportCatalogXlsx").addEventListener("click", () => {
 });
 
 /* ============================================================
-   14. ЭКСПОРТ СКЛАДОВ В PDF (иконки, по блокам, с печатью)
+   ЭКСПОРТ СКЛАДОВ В PDF
    ============================================================ */
 async function exportStocksPdf() {
   const btn1 = document.getElementById("exportStocksPdf");
@@ -1322,7 +1356,7 @@ async function exportStocksPdf() {
     state.faction.forEach(it => allIds.add(it.id));
     state.players.forEach(p => p.items.forEach(it => allIds.add(it.id)));
     await preloadIcons([...allIds]);
-    const sealData = await loadSealDataUrl();
+    const sealPng = await loadSealPng();
     setStatus("Генерация PDF…", "info");
 
     const ICON_SIZE = 5;
@@ -1331,13 +1365,11 @@ async function exportStocksPdf() {
     const pageWidth = doc.internal.pageSize.getWidth();
 
     const drawSeal = () => {
-      if (!sealData) return;
-      const sealW = 38, sealH = 38;
+      if (!sealPng) return;
+      const sealSize = 38;
       try {
-        doc.addImage(sealData, "SVG", pageWidth - sealW - 14, pageHeight - sealH - 10, sealW, sealH, undefined, "FAST");
-      } catch (e) {
-        try { doc.addImage(sealData, "PNG", pageWidth - sealW - 14, pageHeight - sealH - 10, sealW, sealH); } catch(e2){}
-      }
+        doc.addImage(sealPng, "PNG", pageWidth - sealSize - 14, pageHeight - sealSize - 10, sealSize, sealSize, undefined, "FAST");
+      } catch (e) { console.warn("Ошибка вставки печати", e); }
     };
 
     let y = 18;
@@ -1429,8 +1461,9 @@ async function exportStocksPdf() {
       y = drawStockBlock(`Склад: ${p.player} (${p.role})`, p.items, y);
     });
 
-    // Печать на случай отсутствия таблиц
-    if (doc.internal.getNumberOfPages() === 1 && state.faction.length === 0 && state.players.every(p => !p.items.length)) {
+    if (doc.internal.getNumberOfPages() === 1 &&
+        state.faction.length === 0 &&
+        state.players.every(p => !p.items.length)) {
       drawSeal();
     }
 
@@ -1448,7 +1481,7 @@ document.getElementById("exportStocksPdf").addEventListener("click", exportStock
 document.getElementById("exportStocksPdf2").addEventListener("click", exportStocksPdf);
 
 /* ============================================================
-   15. ЭКСПОРТ СКЛАДОВ В PNG (с печатью)
+   ЭКСПОРТ СКЛАДОВ В PNG
    ============================================================ */
 async function exportStocksPng() {
   const btn1 = document.getElementById("exportStocksPng");
@@ -1460,7 +1493,7 @@ async function exportStocksPng() {
     state.faction.forEach(it => allIds.add(it.id));
     state.players.forEach(p => p.items.forEach(it => allIds.add(it.id)));
     await preloadIcons([...allIds]);
-    const seal = await loadSealDataUrl();
+    const seal = await loadSealPng();
 
     const wrap = document.createElement("div");
     wrap.style.cssText = "position:fixed;left:-99999px;top:0;background:#ffffff;color:#111;font-family:'Segoe UI',Roboto,Arial,sans-serif;padding:24px;width:1000px;";
@@ -1474,8 +1507,8 @@ async function exportStocksPng() {
       const sealImg = new Image();
       sealImg.src = seal;
       await new Promise(r => { sealImg.onload = r; sealImg.onerror = r; });
-      const size = Math.min(canvas.width, canvas.height) * 0.18;
-      ctx.globalAlpha = 0.28;
+      const size = Math.min(canvas.width, canvas.height) * 0.20;
+      ctx.globalAlpha = 0.35;
       ctx.drawImage(sealImg, canvas.width - size - 40, canvas.height - size - 40, size, size);
       ctx.globalAlpha = 1;
     }
@@ -1554,7 +1587,7 @@ function renderStocksPngHtml() {
 }
 
 /* ============================================================
-   16. ЭКСПОРТ СКЛАДОВ В EXCEL
+   ЭКСПОРТ СКЛАДОВ В EXCEL
    ============================================================ */
 function exportStocksXlsx() {
   const wb = XLSX.utils.book_new();
@@ -1577,7 +1610,7 @@ function exportStocksXlsx() {
       ["", "", "", "ИТОГО:", total]
     ];
     const ws = XLSX.utils.aoa_to_sheet(data);
-    ws["!cols"] = [{ wch: 35 }, { wch: 14 }, { wch: 16 }, { wch: 12 }, { wch: 14 }];
+    ws["!cols"] = [{ wch: 35 }, { wch: 20 }, { wch: 16 }, { wch: 12 }, { wch: 14 }];
     XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31));
   }
   addSheet("Фракция", state.faction);
@@ -1589,7 +1622,7 @@ document.getElementById("exportStocksXlsx").addEventListener("click", exportStoc
 document.getElementById("exportStocksXlsx2").addEventListener("click", exportStocksXlsx);
 
 /* ============================================================
-   17. ТАБЫ
+   ТАБЫ
    ============================================================ */
 document.querySelectorAll(".tab").forEach(tab => {
   tab.addEventListener("click", () => {
@@ -1603,7 +1636,7 @@ document.querySelectorAll(".tab").forEach(tab => {
 });
 
 /* ============================================================
-   18. СТАРТ
+   СТАРТ
    ============================================================ */
 renderCatalog();
 renderFaction();
