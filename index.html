@@ -65,7 +65,6 @@ async function preloadIcons(ids) {
 
 /* ============================================================
    ЗАГРУЗКА И КОНВЕРТАЦИЯ ПЕЧАТИ (SVG -> PNG dataURL)
-   jsPDF не умеет надёжно вставлять SVG, поэтому конвертируем в PNG
    ============================================================ */
 let SEAL_PNG_DATA_URL = null;
 async function loadSealPng() {
@@ -76,7 +75,6 @@ async function loadSealPng() {
     if (!res.ok) { console.warn("Печать не найдена:", url, res.status); return null; }
     let svgText = await res.text();
 
-    // Гарантируем, что у svg есть width/height (некоторые редакторы их опускают)
     if (!/width=/.test(svgText) || !/height=/.test(svgText)) {
       svgText = svgText.replace(/<svg\b([^>]*)>/i, (m, attrs) => {
         const cleaned = attrs.replace(/\s(width|height)="[^"]*"/g, "");
@@ -378,7 +376,7 @@ async function loadSealPng() {
    КОНСТАНТЫ
    ============================================================ */
 const EDIT_PASSWORD = "9844";
-const STORAGE_KEY = "koop_editor_v4";
+const STORAGE_KEY = "koop_editor_v5";
 
 /* ============================================================
    НОВЫЕ НАЗВАНИЯ КАТЕГОРИЙ
@@ -395,7 +393,7 @@ const CATEGORIES = {
 };
 
 /* ============================================================
-   ДЕФОЛТНЫЙ РЕЕСТР РЕСУРСОВ (цены по прайс-листу)
+   ДЕФОЛТНЫЙ РЕЕСТР РЕСУРСОВ (из koop-backup-2026-11-23.json)
    ============================================================ */
 const DEFAULT_RESOURCES = [
   // ---------- Оружие ----------
@@ -407,7 +405,7 @@ const DEFAULT_RESOURCES = [
   { id:"zatvor_pistolet", cat:CATEGORIES.weapon, name:"Затвор пистолета", price:24, uses:"" },
   { id:"pruzhina_boevaya", cat:CATEGORIES.weapon, name:"Боевая пружина", price:80, uses:"" },
   { id:"pruzhina_vozvrat", cat:CATEGORIES.weapon, name:"Возвратная пружина", price:24, uses:"" },
-  { id:"usm_detali", cat:CATEGORIES.weapon, name:"Детали УСМ", price:200, uses:"" },
+  { id:"usm_detali", cat:CATEGORIES.weapon, name:"Детали УСМ", price:400, uses:"" },
   { id:"priklad_derevo", cat:CATEGORIES.weapon, name:"Деревянный приклад", price:15, uses:"" },
   { id:"priklad_carbon", cat:CATEGORIES.weapon, name:"Карбоновый приклад", price:30, uses:"" },
   { id:"priklad_skladnoy", cat:CATEGORIES.weapon, name:"Рамочный складной приклад", price:20, uses:"" },
@@ -418,11 +416,11 @@ const DEFAULT_RESOURCES = [
   { id:"magazin_korpus", cat:CATEGORIES.weapon, name:"Корпус магазина", price:10, uses:"" },
   { id:"magazin_pruzhina", cat:CATEGORIES.weapon, name:"Пружина магазина", price:24, uses:"" },
   { id:"podatnik_magazin", cat:CATEGORIES.weapon, name:"Податчик патронов", price:10, uses:"" },
-  { id:"boyok", cat:CATEGORIES.weapon, name:"Стальной боёк", price:10, uses:"" },
+  { id:"boyok", cat:CATEGORIES.weapon, name:"Стальной боёк", price:30, uses:"" },
   { id:"boyok_ruzhye", cat:CATEGORIES.weapon, name:"Боёк для двустволки", price:70, uses:"" },
   { id:"gazovaya_trubka", cat:CATEGORIES.weapon, name:"Газовая трубка", price:50, uses:"" },
   { id:"dula_tormoz", cat:CATEGORIES.weapon, name:"Дульный тормоз-компенсатор", price:60, uses:"" },
-  { id:"optika_linza", cat:CATEGORIES.weapon, name:"Разбитая линза прицела", price:70, uses:"" },
+  { id:"optika_linza", cat:CATEGORIES.weapon, name:"Разбитая линза прицела", price:250, uses:"" },
   { id:"kreplenie_lastochka", cat:CATEGORIES.weapon, name:"Крепление Ласточкин хвост", price:30, uses:"" },
   { id:"kreplenie_nato", cat:CATEGORIES.weapon, name:"Западное крепление", price:24, uses:"" },
   { id:"ramka_pistolet", cat:CATEGORIES.weapon, name:"Пистолетная рамка", price:24, uses:"" },
@@ -484,7 +482,7 @@ const DEFAULT_RESOURCES = [
   { id:"knopka_tumbler", cat:CATEGORIES.electro, name:"Тумблер", price:3, uses:"" },
   { id:"magnit_ferrit", cat:CATEGORIES.electro, name:"Ферритовый магнит", price:1, uses:"" },
   { id:"motorchik", cat:CATEGORIES.electro, name:"Моторчик", price:15, uses:"Бастион" },
-  { id:"lampa_nakal", cat:CATEGORIES.electro, name:"Лампочка", price:9, uses:"" },
+  { id:"lampa_nakal", cat:CATEGORIES.electro, name:"Лампочка", price:20, uses:"" },
   { id:"rele_povorot", cat:CATEGORIES.electro, name:"Реле поворотов", price:10, uses:"" },
   { id:"rezistor_peremen", cat:CATEGORIES.electro, name:"Резистор", price:3, uses:"" },
   { id:"provod_katushka", cat:CATEGORIES.electro, name:"Катушка провода", price:3, uses:"" },
@@ -499,7 +497,7 @@ const DEFAULT_RESOURCES = [
 
   // ---------- Хлам ----------
   { id:"gvozd_gnuty", cat:CATEGORIES.junk, name:"Гнутый гвоздь", price:1, uses:"" },
-  { id:"bolt_gaika", cat:CATEGORIES.junk, name:"Набор болтов и гаек", price:4, uses:"" },
+  { id:"bolt_gaika", cat:CATEGORIES.junk, name:"Набор болтов и гаек", price:10, uses:"" },
   { id:"izolenta_sinyaya", cat:CATEGORIES.junk, name:"Остатки изоленты", price:5, uses:"" },
   { id:"kley_moment", cat:CATEGORIES.junk, name:"Засохший тюбик клея", price:22, uses:"" },
   { id:"tsep_metall", cat:CATEGORIES.junk, name:"Обрывок цепи", price:1, uses:"" },
@@ -576,7 +574,7 @@ const DEFAULT_RESOURCES = [
   { id:"kura_brezent", cat:CATEGORIES.armor, name:"Отрез плотного брезента", price:15, uses:"" },
   { id:"kozha_tolstaya", cat:CATEGORIES.armor, name:"Толстая воловья кожа", price:30, uses:"" },
   { id:"nitki_nylon", cat:CATEGORIES.armor, name:"Нейлоновые нитки", price:10, uses:"Почти все брони" },
-  { id:"remen_stropa", cat:CATEGORIES.armor, name:"Нейлоновая стропа", price:25, uses:"Почти все брони" },
+  { id:"remen_stropa", cat:CATEGORIES.armor, name:"Нейлоновая стропа", price:10, uses:"Почти все брони" },
   { id:"fasteks_zastezhka", cat:CATEGORIES.armor, name:"Застежка-фастекс", price:24, uses:"" },
   { id:"lipuchka_velcro", cat:CATEGORIES.armor, name:"Лента-липучка", price:24, uses:"" },
   { id:"podkladka_mesh", cat:CATEGORIES.armor, name:"Вентилируемая 3D-сетка", price:24, uses:"" },
@@ -588,11 +586,11 @@ const DEFAULT_RESOURCES = [
   { id:"amort_vstavka", cat:CATEGORIES.armor, name:"Демпферная вставка (КАП)", price:2000, uses:"Бастион" },
   { id:"plastina_stal", cat:CATEGORIES.armor, name:"Стальная бронеплита", price:2000, uses:"Защитник" },
   { id:"plastina_keramika", cat:CATEGORIES.armor, name:"Керамическая бронеплита", price:24, uses:"" },
-  { id:"plastina_titan", cat:CATEGORIES.armor, name:"Титановая бронеплита", price:300, uses:"Бастион" },
-  { id:"plastina_polietilen", cat:CATEGORIES.armor, name:"Бронеплита СВМПЭ", price:2000, uses:"Тень" },
+  { id:"plastina_titan", cat:CATEGORIES.armor, name:"Титановая бронеплита", price:3000, uses:"Бастион" },
+  { id:"plastina_polietilen", cat:CATEGORIES.armor, name:"Бронеплита СВМПЭ", price:1000, uses:"Тень" },
   { id:"rebro_zhestkosti", cat:CATEGORIES.armor, name:"Металлическое ребро жесткости", price:30, uses:"" },
-  { id:"kolchuga_polotno", cat:CATEGORIES.armor, name:"Фрагмент стальной кольчуги", price:120, uses:"Cifra, Feldgrau, Himera, Krechet, Priboy, Ratnik, Scout, Ten, Attacker" },
-  { id:"kolchuga_titan", cat:CATEGORIES.armor, name:"Фрагмент титановой кольчуги", price:35, uses:"Attacker, Bastion, Cifra, Defender, Himera, Krechet, Priboy, Ratnik, Ten" },
+  { id:"kolchuga_polotno", cat:CATEGORIES.armor, name:"Фрагмент стальной кольчуги", price:3000, uses:"Cifra, Feldgrau, Himera, Krechet, Priboy, Ratnik, Scout, Ten, Attacker" },
+  { id:"kolchuga_titan", cat:CATEGORIES.armor, name:"Фрагмент титановой кольчуги", price:2000, uses:"Attacker, Bastion, Cifra, Defender, Himera, Krechet, Priboy, Ratnik, Ten" },
   { id:"kompozit_smola", cat:CATEGORIES.armor, name:"Банка эпоксидной смолы", price:24, uses:"" },
   { id:"steklotkan_rulon", cat:CATEGORIES.armor, name:"Рулон стеклоткани", price:6, uses:"" },
   { id:"amortizator_eva", cat:CATEGORIES.armor, name:"Лист ЭВА-пены", price:30, uses:"" },
@@ -608,7 +606,7 @@ const DEFAULT_RESOURCES = [
   { id:"nalokotnik_chashka", cat:CATEGORIES.armor, name:"Пластиковая чашечка налокотника", price:30, uses:"" },
   { id:"zashchita_bedro", cat:CATEGORIES.armor, name:"Набедренная платформа", price:30, uses:"" },
   { id:"shitok_predplechye", cat:CATEGORIES.armor, name:"Бронещиток на предплечье", price:30, uses:"" },
-  { id:"shitok_golen", cat:CATEGORIES.armor, name:"Бронещиток на голень", price:150, uses:"Бастион" },
+  { id:"shitok_golen", cat:CATEGORIES.armor, name:"Бронещиток на голень", price:500, uses:"Бастион" },
   { id:"kaska_kupol", cat:CATEGORIES.armor, name:"Стальной купол шлема", price:30, uses:"" },
   { id:"shlem_kevlar_kupol", cat:CATEGORIES.armor, name:"Кевларовая сфера шлема", price:30, uses:"" },
   { id:"podves_shlem", cat:CATEGORIES.armor, name:"Подтулейное устройство", price:30, uses:"" },
@@ -623,11 +621,138 @@ const DEFAULT_RESOURCES = [
   { id:"shnurki_kevlar", cat:CATEGORIES.armor, name:"Кевларовые огнеупорные шнурки", price:24, uses:"" },
 
   // ---------- Ванильные ресурсы ----------
-  { id:"iron",     cat:CATEGORIES.vanilla, name:"Железо",  price:20, uses:"" },
-  { id:"diamond",  cat:CATEGORIES.vanilla, name:"Алмазы",  price:50, uses:"" },
-  { id:"copper",   cat:CATEGORIES.vanilla, name:"Медь",    price:5,  uses:"" },
-  { id:"gold",     cat:CATEGORIES.vanilla, name:"Золото",  price:5,  uses:"" },
-  { id:"gunpowder",cat:CATEGORIES.vanilla, name:"Порох",   price:5,  uses:"" },
+  { id:"iron",      cat:CATEGORIES.vanilla, name:"Железо",  price:2,  uses:"" },
+  { id:"diamond",   cat:CATEGORIES.vanilla, name:"Алмазы",  price:10, uses:"" },
+  { id:"copper",    cat:CATEGORIES.vanilla, name:"Медь",    price:1,  uses:"" },
+  { id:"gold",      cat:CATEGORIES.vanilla, name:"Золото",  price:5,  uses:"" },
+  { id:"gunpowder", cat:CATEGORIES.vanilla, name:"Порох",   price:1,  uses:"" },
+];
+
+/* ============================================================
+   ДЕФОЛТНЫЕ ИГРОКИ (склад OscarByOsa из бэкапа 2026-11-23)
+   ============================================================ */
+const DEFAULT_PLAYERS = [
+  {
+    player: "OscarByOsa",
+    role: "Участник фракции",
+    items: [
+      { id:"radiator_alyum", qty:10 },
+      { id:"akkum_vzdut", qty:21 },
+      { id:"gilza_drobovik", qty:84 },
+      { id:"gvozd_gnuty", qty:66 },
+      { id:"priklad_derevo", qty:5 },
+      { id:"diod_most", qty:10 },
+      { id:"bint_gryazny", qty:21 },
+      { id:"zatvor_ak", qty:9 },
+      { id:"svinets_kartech", qty:10 },
+      { id:"tsevye_metall", qty:4 },
+      { id:"provod_katushka", qty:5 },
+      { id:"nitki_nylon", qty:73 },
+      { id:"kozha_obrezki", qty:44 },
+      { id:"gazeta_soviet", qty:141 },
+      { id:"tsep_metall", qty:15 },
+      { id:"britva_opas", qty:58 },
+      { id:"stvol_drobovik", qty:10 },
+      { id:"selitra_paket", qty:15 },
+      { id:"shesternya_stal", qty:50 },
+      { id:"gajka_stvol", qty:3 },
+      { id:"antena_teleskop", qty:25 },
+      { id:"transformator", qty:14 },
+      { id:"ochi_broken", qty:74 },
+      { id:"magnit_ferrit", qty:31 },
+      { id:"kolchuga_polotno", qty:15 },
+      { id:"kolchuga_titan", qty:12 },
+      { id:"tselik_zad", qty:3 },
+      { id:"kondensator", qty:76 },
+      { id:"zhest_list", qty:184 },
+      { id:"tkan_kevlar", qty:56 },
+      { id:"magazin_korpus", qty:19 },
+      { id:"shnur_parakord", qty:2 },
+      { id:"mednaya_obmotka", qty:23 },
+      { id:"dinamik_maly", qty:54 },
+      { id:"plastina_polietilen", qty:5 },
+      { id:"boyok_ruzhye", qty:4 },
+      { id:"ampula_steklo", qty:25 },
+      { id:"pruzhina_boevaya", qty:10 },
+      { id:"bronepaket_aramid", qty:2 },
+      { id:"rukoyatka_pistolet", qty:8 },
+      { id:"stvol_vintovka", qty:3 },
+      { id:"pizh_voylok", qty:73 },
+      { id:"amort_vstavka", qty:2 },
+      { id:"gilza_sniper", qty:18 },
+      { id:"tsevye_derevo", qty:10 },
+      { id:"pulya_expansiv", qty:78 },
+      { id:"sero_paket", qty:15 },
+      { id:"gilza_pistolet", qty:90 },
+      { id:"stvol_pistolet", qty:22 },
+      { id:"podatnik_magazin", qty:11 },
+      { id:"tsevye_plastik", qty:10 },
+      { id:"tkanevaya_vetosh", qty:35 },
+      { id:"batareyka_kron", qty:143 },
+      { id:"rascheska_plast", qty:63 },
+      { id:"rezistor_peremen", qty:37 },
+      { id:"rezinovy_uplot", qty:7 },
+      { id:"priklad_skladnoy", qty:2 },
+      { id:"radiolampa", qty:12 },
+      { id:"razgruzka_osnova", qty:8 },
+      { id:"korobka_patrony", qty:54 },
+      { id:"remen_stropa", qty:76 },
+      { id:"drob_svinets", qty:73 },
+      { id:"shlak_metall", qty:61 },
+      { id:"zamok_navesnoy", qty:13 },
+      { id:"izolyat_keram", qty:1 },
+      { id:"moneta_sssr", qty:135 },
+      { id:"dula_tormoz", qty:3 },
+      { id:"provodka_zhgut", qty:132 },
+      { id:"bolt_gaika", qty:86 },
+      { id:"trubka_med", qty:20 },
+      { id:"displej_nokia", qty:36 },
+      { id:"chehol_bronezhilet", qty:4 },
+      { id:"plata_tv", qty:46 },
+      { id:"klyuch_rzhavy", qty:103 },
+      { id:"sheptalo", qty:2 },
+      { id:"knopka_tumbler", qty:27 },
+      { id:"poroh_stary", qty:52 },
+      { id:"motorchik", qty:27 },
+      { id:"splav_svinets", qty:6 },
+      { id:"banka_konservy", qty:119 },
+      { id:"boyok", qty:8 },
+      { id:"pulya_serdtsevin", qty:28 },
+      { id:"vkladysh_stvol", qty:4 },
+      { id:"rele_povorot", qty:10 },
+      { id:"probka_rezina", qty:22 },
+      { id:"plastina_titan", qty:3 },
+      { id:"plastina_stal", qty:1 },
+      { id:"plashka_mikro", qty:26 },
+      { id:"ugol_aktiv", qty:14 },
+      { id:"podsumok_maly", qty:7 },
+      { id:"armatura_kusok", qty:28 },
+      { id:"podschechnik", qty:1 },
+      { id:"ramka_pistolet", qty:1 },
+      { id:"usm_detali", qty:7 },
+      { id:"izolenta_sinyaya", qty:22 },
+      { id:"optika_linza", qty:4 },
+      { id:"lampa_nakal", qty:1 },
+      { id:"zabralo_polikarbonat", qty:6 },
+      { id:"zerkalo_oskolok", qty:41 },
+      { id:"gazovaya_trubka", qty:5 },
+      { id:"trubka_gilza", qty:5 },
+      { id:"nakladka_gaz", qty:3 },
+      { id:"gilza_vintovka", qty:9 },
+      { id:"kura_brezent", qty:2 },
+      { id:"kapsul_vosh", qty:63 },
+      { id:"zashchita_pah", qty:6 },
+      { id:"plashka_pamyat", qty:6 },
+      { id:"zatvor_vintovka", qty:6 },
+      { id:"zaklepka_stal", qty:8 },
+      { id:"kryshka_stv_kor", qty:1 },
+      { id:"poroh_banka", qty:22 },
+      { id:"pulya_obolochka", qty:10 },
+      { id:"berets_osnova", qty:1 },
+    ]
+  },
+  { player: "Clanzlo", role: "Участник фракции", items: [] },
+  { player: "KORBUT",  role: "Участник фракции", items: [] },
 ];
 
 /* ============================================================
@@ -646,28 +771,22 @@ function setStatus(msg, type = "info", autoHide = 0) {
 /* ============================================================
    ХРАНИЛИЩЕ
    ============================================================ */
+function deepClone(o) { return JSON.parse(JSON.stringify(o)); }
+
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      state.resources = parsed.resources || JSON.parse(JSON.stringify(DEFAULT_RESOURCES));
+      state.resources = parsed.resources || deepClone(DEFAULT_RESOURCES);
       state.faction = parsed.faction || [];
-      state.players = parsed.players || [
-        { player: "OscarByOsa", role: "Участник фракции", items: [] },
-        { player: "Clanzlo",    role: "Участник фракции", items: [] },
-        { player: "KORBUT",     role: "Участник фракции", items: [] },
-      ];
+      state.players = parsed.players || deepClone(DEFAULT_PLAYERS);
       return;
     }
   } catch (e) { console.warn("Не удалось загрузить", e); }
-  state.resources = JSON.parse(JSON.stringify(DEFAULT_RESOURCES));
+  state.resources = deepClone(DEFAULT_RESOURCES);
   state.faction = [];
-  state.players = [
-    { player: "OscarByOsa", role: "Участник фракции", items: [] },
-    { player: "Clanzlo",    role: "Участник фракции", items: [] },
-    { player: "KORBUT",     role: "Участник фракции", items: [] },
-  ];
+  state.players = deepClone(DEFAULT_PLAYERS);
 }
 
 function saveState() {
